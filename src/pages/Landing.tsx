@@ -130,7 +130,7 @@ export default function Landing() {
               <li>WhatsApp reminders (150 a month)</li>
               <li>SMS reminders (30 a month)</li>
               <li>Reminders for your guests on WhatsApp</li>
-              <li>Daily booking limits and buffers per link</li>
+              <li>Daily booking limits per link</li>
               <li>Priority support</li>
             </ul>
             <Link to="/login?mode=signup" className="btn primary block" style={{ marginTop: 20 }}>Start free trial</Link>
