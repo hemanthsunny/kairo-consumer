@@ -1,0 +1,239 @@
+// Google Calendar + Microsoft Graph. We only read busy times (never titles) and
+// write events for bookings made through our links.
+
+import { env, redirectUri } from "./env.ts";
+import { Interval } from "./slots.ts";
+
+export type Provider = "google" | "microsoft";
+
+export const GOOGLE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/calendar.freebusy",
+  "https://www.googleapis.com/auth/calendar.events.owned",
+];
+
+export const MS_SCOPES = ["openid", "email", "profile", "offline_access", "Calendars.ReadWrite"];
+
+export class ProviderAuthError extends Error {}
+
+export interface TokenSet {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+  email?: string;
+  scope?: string;
+}
+
+function decodeJwtPayload(jwt: string): Record<string, unknown> {
+  const part = jwt.split(".")[1] ?? "";
+  const pad = part.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((part.length + 3) % 4);
+  return JSON.parse(atob(pad));
+}
+
+export function authUrl(provider: Provider, state: string, loginHint?: string): string {
+  if (provider === "google") {
+    const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    u.searchParams.set("client_id", env.googleClientId);
+    u.searchParams.set("redirect_uri", redirectUri("google"));
+    u.searchParams.set("response_type", "code");
+    u.searchParams.set("scope", GOOGLE_SCOPES.join(" "));
+    u.searchParams.set("access_type", "offline");
+    u.searchParams.set("prompt", "consent select_account");
+    u.searchParams.set("include_granted_scopes", "true");
+    u.searchParams.set("state", state);
+    if (loginHint) u.searchParams.set("login_hint", loginHint);
+    return u.toString();
+  }
+  const u = new URL("https://login.microsoftonline.com/common/oauth2/v2.0/authorize");
+  u.searchParams.set("client_id", env.msClientId);
+  u.searchParams.set("redirect_uri", redirectUri("microsoft"));
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("response_mode", "query");
+  u.searchParams.set("scope", MS_SCOPES.join(" "));
+  u.searchParams.set("prompt", "select_account");
+  u.searchParams.set("state", state);
+  if (loginHint) u.searchParams.set("login_hint", loginHint);
+  return u.toString();
+}
+
+async function tokenRequest(provider: Provider, params: Record<string, string>): Promise<TokenSet> {
+  const url = provider === "google"
+    ? "https://oauth2.googleapis.com/token"
+    : "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+  const base: Record<string, string> = provider === "google"
+    ? { client_id: env.googleClientId, client_secret: env.googleClientSecret }
+    : { client_id: env.msClientId, client_secret: env.msClientSecret, scope: MS_SCOPES.join(" ") };
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ ...base, ...params }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const code = String(data.error ?? res.status);
+    const msg = String(data.error_description ?? data.error ?? "Token request failed");
+    if (code === "invalid_grant" || code === "interaction_required" || code === "unauthorized_client") {
+      throw new ProviderAuthError(msg);
+    }
+    throw new Error(`${provider} token error: ${msg}`);
+  }
+  let email: string | undefined;
+  if (data.id_token) {
+    const claims = decodeJwtPayload(data.id_token);
+    email = String(claims.email ?? claims.preferred_username ?? "") || undefined;
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: Date.now() + (Number(data.expires_in ?? 3600) - 60) * 1000,
+    email: email?.toLowerCase(),
+    scope: data.scope,
+  };
+}
+
+export function exchangeCode(provider: Provider, code: string) {
+  return tokenRequest(provider, {
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri(provider),
+  });
+}
+
+export function refresh(provider: Provider, refreshToken: string) {
+  return tokenRequest(provider, { grant_type: "refresh_token", refresh_token: refreshToken });
+}
+
+async function api(url: string, token: string, init: RequestInit = {}) {
+  const res = await fetch(url, {
+    ...init,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(init.headers ?? {}) },
+  });
+  if (res.status === 401) throw new ProviderAuthError("Access was revoked or expired");
+  return res;
+}
+
+/** Busy intervals for the account's main calendar between from and to. */
+export async function fetchBusy(provider: Provider, token: string, from: number, to: number): Promise<Interval[]> {
+  if (provider === "google") {
+    const res = await api("https://www.googleapis.com/calendar/v3/freeBusy", token, {
+      method: "POST",
+      body: JSON.stringify({
+        timeMin: new Date(from).toISOString(),
+        timeMax: new Date(to).toISOString(),
+        items: [{ id: "primary" }],
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(`Google free/busy failed: ${data.error?.message ?? res.status}`);
+    const cal = data.calendars?.primary;
+    if (cal?.errors?.length) throw new Error(`Google free/busy: ${cal.errors[0].reason}`);
+    return (cal?.busy ?? []).map((b: { start: string; end: string }) => ({
+      start: Date.parse(b.start),
+      end: Date.parse(b.end),
+    }));
+  }
+  // Microsoft: calendar view with only start/end/showAs selected (no subjects requested).
+  const out: Interval[] = [];
+  let url: string | null = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${
+    encodeURIComponent(new Date(from).toISOString())
+  }&endDateTime=${encodeURIComponent(new Date(to).toISOString())}&$select=start,end,showAs,isCancelled&$top=200`;
+  let pages = 0;
+  while (url && pages < 10) {
+    const res = await api(url, token, { headers: { Prefer: 'outlook.timezone="UTC"' } });
+    const data = await res.json();
+    if (!res.ok) {
+      const code = data.error?.code ?? res.status;
+      if (code === "MailboxNotEnabledForRESTAPI") throw new Error("This Microsoft account has no calendar (mailbox not enabled)");
+      throw new Error(`Microsoft calendar read failed: ${data.error?.message ?? code}`);
+    }
+    for (const e of data.value ?? []) {
+      if (e.isCancelled || e.showAs === "free" || e.showAs === "workingElsewhere") continue;
+      out.push({ start: Date.parse(e.start.dateTime + "Z"), end: Date.parse(e.end.dateTime + "Z") });
+    }
+    url = data["@odata.nextLink"] ?? null;
+    pages++;
+  }
+  return out;
+}
+
+export interface NewEvent {
+  title: string;
+  description: string;
+  start: number;
+  end: number;
+  hostTz: string;
+  guestName: string;
+  guestEmail: string;
+  wantVideo: boolean;
+  location?: string | null;
+  requestId: string;
+}
+
+export interface CreatedEvent {
+  eventId: string;
+  meetingUrl: string | null;
+}
+
+export async function createEvent(provider: Provider, token: string, ev: NewEvent): Promise<CreatedEvent> {
+  if (provider === "google") {
+    const body: Record<string, unknown> = {
+      summary: ev.title,
+      description: ev.description,
+      start: { dateTime: new Date(ev.start).toISOString(), timeZone: ev.hostTz },
+      end: { dateTime: new Date(ev.end).toISOString(), timeZone: ev.hostTz },
+      attendees: [{ email: ev.guestEmail, displayName: ev.guestName }],
+      reminders: { useDefault: true },
+    };
+    if (ev.location) body.location = ev.location;
+    if (ev.wantVideo) {
+      body.conferenceData = {
+        createRequest: { requestId: ev.requestId, conferenceSolutionKey: { type: "hangoutsMeet" } },
+      };
+    }
+    const res = await api(
+      "https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all",
+      token,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(`Google event create failed: ${data.error?.message ?? res.status}`);
+    const meet = data.hangoutLink ??
+      data.conferenceData?.entryPoints?.find((p: { entryPointType: string }) => p.entryPointType === "video")?.uri ??
+      null;
+    return { eventId: data.id, meetingUrl: meet };
+  }
+
+  const base: Record<string, unknown> = {
+    subject: ev.title,
+    body: { contentType: "text", content: ev.description },
+    start: { dateTime: new Date(ev.start).toISOString().slice(0, 19), timeZone: "UTC" },
+    end: { dateTime: new Date(ev.end).toISOString().slice(0, 19), timeZone: "UTC" },
+    attendees: [{ emailAddress: { address: ev.guestEmail, name: ev.guestName }, type: "required" }],
+    transactionId: ev.requestId,
+  };
+  if (ev.location) base.location = { displayName: ev.location };
+  const attempt = async (withTeams: boolean) => {
+    const payload = withTeams ? { ...base, isOnlineMeeting: true, onlineMeetingProvider: "teamsForBusiness" } : base;
+    const res = await api("https://graph.microsoft.com/v1.0/me/events", token, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return { res, data: await res.json() };
+  };
+  let { res, data } = await attempt(ev.wantVideo);
+  if (!res.ok && ev.wantVideo) ({ res, data } = await attempt(false)); // personal accounts can't create Teams links
+  if (!res.ok) throw new Error(`Microsoft event create failed: ${data.error?.message ?? res.status}`);
+  return { eventId: data.id, meetingUrl: data.onlineMeeting?.joinUrl ?? null };
+}
+
+export async function deleteEvent(provider: Provider, token: string, eventId: string): Promise<void> {
+  const url = provider === "google"
+    ? `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`
+    : `https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}`;
+  const res = await api(url, token, { method: "DELETE" });
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Could not remove calendar event (${res.status})`);
+  }
+}

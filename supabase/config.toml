@@ -1,0 +1,6 @@
+# Supabase CLI config (used by the deploy workflow)
+project_id = "aqzbnqbuxvbgwtendieh"
+
+[functions.api]
+# The api function handles its own auth (public booking routes, webhooks, cron).
+verify_jwt = false
