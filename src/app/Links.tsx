@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase, LinkRow, WeeklyHours } from "../lib/supabase";
 import { durationLabel } from "../lib/time";
 import { IconCopy, IconPlus } from "../components/Icons";
@@ -45,6 +46,7 @@ export default function Links() {
           <IconPlus width={16} /> New link
         </button>
       </div>
+      <HandleEditor />
       {!accounts.length && <div className="alert info">Connect a calendar first, then create links.</div>}
 
       <div className="stack">
@@ -153,6 +155,9 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             <div className="input-prefix"><span>/{profile.handle}/</span>
               <input type="text" value={d.slug} onChange={(e) => { setSlugTouched(true); set("slug", slugify(e.target.value)); }} />
             </div>
+            <span className="hint">
+              “{profile.handle}” is your personal address, shared by all your links. Change it at the top of the Links page or in <Link to="/app/settings" onClick={onClose}>Settings</Link>.
+            </span>
           </label>
         </div>
 
@@ -279,6 +284,62 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function HandleEditor() {
+  const { profile, reload, toast } = useApp();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(profile.handle);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const host = window.location.host;
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const h = value.trim().toLowerCase();
+    if (h === profile.handle) return setEditing(false);
+    if (!/^[a-z0-9][a-z0-9-]{2,30}$/.test(h)) return setError("Use 3–31 lowercase letters, numbers or dashes");
+    setSaving(true);
+    setError(null);
+    const { error } = await supabase.from("profiles").update({ handle: h }).eq("id", profile.id);
+    setSaving(false);
+    if (error) {
+      setError(error.code === "23505" ? "That address is taken. Try another." : /reserved/.test(error.message) ? "That address is reserved. Try another." : error.message);
+      return;
+    }
+    toast("Address updated. All your links now use it.");
+    setEditing(false);
+    reload();
+  }
+
+  return (
+    <div className="card flat">
+      {editing ? (
+        <form className="stack" style={{ gap: 8 }} onSubmit={save} noValidate>
+          <label className="field">Your personal address
+            <div className="input-prefix"><span>{host}/</span>
+              <input type="text" autoFocus value={value} maxLength={31}
+                onChange={(e) => setValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} />
+            </div>
+            <span className="hint">Links you've already shared with the old address will stop working.</span>
+          </label>
+          {error && <div className="alert error" role="alert">{error}</div>}
+          <div className="row">
+            <button className="btn primary sm" disabled={saving}>{saving ? "Saving…" : "Save address"}</button>
+            <button type="button" className="btn ghost sm" onClick={() => { setEditing(false); setValue(profile.handle); setError(null); }}>Cancel</button>
+          </div>
+        </form>
+      ) : (
+        <div className="spread" style={{ flexWrap: "wrap" }}>
+          <div>
+            <p className="small muted">Your personal address</p>
+            <p style={{ fontWeight: 600 }}>{host}/<span style={{ color: "var(--accent)" }}>{profile.handle}</span></p>
+          </div>
+          <button className="btn sm" onClick={() => setEditing(true)}>Change</button>
+        </div>
+      )}
     </div>
   );
 }
