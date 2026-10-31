@@ -20,6 +20,11 @@ export async function api<T = unknown>(path: string, init: RequestInit & { auth?
     throw new ApiError(0, "You seem to be offline. Check your connection and try again.");
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? "Something went wrong");
+  if (!res.ok) {
+    const d = data as { error?: string; message?: string; msg?: string; code?: string };
+    let msg = d.error ?? d.message ?? d.msg;
+    if (res.status === 404 && d.code === "NOT_FOUND") msg = "Our server isn't reachable right now (API not deployed). Please try again shortly.";
+    throw new ApiError(res.status, msg ?? `Something went wrong (error ${res.status}). Please try again.`);
+  }
   return data as T;
 }
