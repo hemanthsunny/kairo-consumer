@@ -42,7 +42,7 @@ Custom domain `link.kairohr.co`: add a DNS `CNAME link → <site>.netlify.app`.
 ### 3. Google Cloud (a *new* project, separate from Kairo HR)
 - OAuth consent screen: External, app name "Kairo Link", leave it in **Testing** for the pilot and add friends as test users (up to 100).
   - Testing mode expires refresh tokens after 7 days, so users reconnect weekly until you publish and pass review.
-- Scopes: `openid`, `email`, `profile`, `calendar.freebusy`, `calendar.events.owned`
+- Scopes: `openid`, `email`, `profile`, `calendar.freebusy`, `calendar.events`
 - Enable the **Google Calendar API**
 - OAuth client (Web). Authorised redirect URIs:
   - `https://link.kairohr.co/api/oauth/google/callback` (calendar connect)

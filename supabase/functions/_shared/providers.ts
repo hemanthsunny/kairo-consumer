@@ -11,7 +11,7 @@ export const GOOGLE_SCOPES = [
   "email",
   "profile",
   "https://www.googleapis.com/auth/calendar.freebusy",
-  "https://www.googleapis.com/auth/calendar.events.owned",
+  "https://www.googleapis.com/auth/calendar.events", // same scope Kairo HR submitted for review
 ];
 
 export const MS_SCOPES = ["openid", "email", "profile", "offline_access", "Calendars.ReadWrite"];
