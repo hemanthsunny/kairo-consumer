@@ -56,7 +56,7 @@ export default function Calendars() {
       </div>
 
       <p className="small faint">
-        Privacy: we only read when you're busy and create events for bookings made through your links. We never read your event titles, attendees or descriptions.
+        Privacy: event details are fetched live and shown only to you; we never store them. Turn off "Show event details" for any calendar (say, a client's) to see busy times only.
       </p>
     </div>
   );
@@ -148,10 +148,16 @@ function AccountRowView({ account: a, checking, calendarId, onChanged, toast }: 
             ))}
           </div>
         </div>
-        <label className="row small muted" style={{ gap: 8 }}>
-          <Switch checked={checking} onChange={setChecking} label="Check this calendar for clashes" />
-          Check for clashes
-        </label>
+        <div className="row wrap" style={{ gap: 18 }}>
+          <label className="row small muted" style={{ gap: 8 }}>
+            <Switch checked={checking} onChange={setChecking} label="Check this calendar for clashes" />
+            Check for clashes
+          </label>
+          <label className="row small muted" style={{ gap: 8 }}>
+            <Switch checked={a.show_details} onChange={async (v) => { await save({ show_details: v }); toast(v ? "Event details will show on your Today page" : "This calendar now shows busy times only"); }} label="Show event details" />
+            Show event details
+          </label>
+        </div>
       </div>
       <div className="row">
         {a.status !== "active" ? (

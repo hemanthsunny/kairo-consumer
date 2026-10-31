@@ -2,14 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Account, Booking, LinkRow } from "../lib/supabase";
-import { dayKey, fmt, fmtDay, fmtTime, minutesOfDay, tzLabel } from "../lib/time";
+import { AccountEvents, buildItems, EventDetails, Item, WeekCalendar } from "./WeekCalendar";
+import { fmt, fmtDay, fmtTime, minutesOfDay, tzLabel } from "../lib/time";
 import { IconChevron, IconCopy, IconRefresh, IconVideo } from "../components/Icons";
 import { buildShareText, ConnectButtons, linkUrl } from "./shared";
 import { copyText, useApp } from "./data";
-
-const START_H = 7;
-const END_H = 21;
-const PX_PER_H = 48;
 
 function startOfWeek(tz: string, offsetWeeks: number) {
   // Monday 00:00 in tz, approximated via local day key arithmetic
@@ -30,6 +27,8 @@ export default function Home() {
   const tz = profile.timezone;
   const [week, setWeek] = useState(0);
   const [ov, setOv] = useState<Overview | null>(null);
+  const [events, setEvents] = useState<AccountEvents[] | null>(null);
+  const [selected, setSelected] = useState<Item | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const activeLinks = links.filter((l) => l.is_active);
@@ -45,13 +44,19 @@ export default function Home() {
     setLoading(true);
     setErr(null);
     try {
-      setOv(await api<Overview>(`/me/overview?from=${from}&to=${to}${live ? "&live=1" : ""}`));
+      const wantDetails = accounts.some((a) => a.show_details);
+      const [o, ev] = await Promise.all([
+        api<Overview>(`/me/overview?from=${from}&to=${to}${live ? "&live=1" : ""}`),
+        wantDetails ? api<{ accounts: AccountEvents[] }>(`/me/events?from=${from}&to=${to}`).catch(() => null) : Promise.resolve(null),
+      ]);
+      setOv(o);
+      setEvents(ev?.accounts ?? []);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [accounts.length, from, to]);
+  }, [accounts, from, to]);
 
   useEffect(() => {
     load();
@@ -132,7 +137,7 @@ export default function Home() {
         <div className="card-head" style={{ flexWrap: "wrap" }}>
           <div>
             <h2>{week === 0 ? "This week" : week === 1 ? "Next week" : `Week of ${fmtDay(from + 3600000, tz)}`}</h2>
-            <p className="small muted">All your calendars together. We only see busy times, never event details.</p>
+            <p className="small muted">All your calendars together. Click any event for details and the join link.</p>
           </div>
           <div className="row">
             <button className="btn sm" aria-label="Previous week" onClick={() => setWeek((w) => Math.max(0, w - 1))} disabled={week === 0}><IconChevron dir="left" width={16} /></button>
@@ -144,9 +149,11 @@ export default function Home() {
         {err && <div className="alert error" style={{ marginBottom: 12 }}>{err}</div>}
         <div className="legend" style={{ marginBottom: 12 }}>
           {accounts.map((a) => <span key={a.id}><i className="dot" style={{ background: a.color }} />{a.label} · {a.email}</span>)}
-          <span><i className="dot" style={{ background: "var(--text)" }} />Booked via your links</span>
+          
         </div>
-        <WeekGrid from={from} tz={tz} overview={ov} />
+        <WeekCalendar from={from} tz={tz} items={ov ? buildItems(ov.accounts, events, ov.bookings) : []} onSelect={setSelected} />
+        {!ov && <div className="loading" style={{ padding: 16 }}><div className="spinner" /></div>}
+        {selected && <EventDetails item={selected} tz={tz} onClose={() => setSelected(null)} />}
       </div>
 
       <div className="card">
@@ -180,84 +187,6 @@ export default function Home() {
   );
 }
 
-function WeekGrid({ from, tz, overview }: { from: number; tz: string; overview: Overview | null }) {
-  const days = Array.from({ length: 7 }, (_, i) => from + i * 86400000 + 3 * 3600000);
-  const today = dayKey(Date.now(), tz);
-  const height = (END_H - START_H) * PX_PER_H;
-  const pos = (s: number, e: number) => {
-    const sm = Math.max(minutesOfDay(s, tz), START_H * 60);
-    const em = Math.min(minutesOfDay(e - 1, tz) + 1, END_H * 60);
-    return { top: ((sm - START_H * 60) / 60) * PX_PER_H, height: Math.max(((em - sm) / 60) * PX_PER_H, 14) };
-  };
-
-  const items = (i: number, dk: string) => {
-    const colStart = from + i * 86400000;
-    const colEnd = colStart + 86400000;
-    const out: { key: string; top: number; height: number; color?: string; text: string; booking?: boolean }[] = [];
-    for (const a of overview?.accounts ?? []) {
-      for (const b of a.busy) {
-        const s = Math.max(b.start, colStart);
-        const e = Math.min(b.end, colEnd);
-        if (e <= s) continue;
-        const p = pos(s, e);
-        if (p.top >= height || p.top + p.height <= 0) continue;
-        out.push({ key: `${a.id}-${b.start}`, ...p, color: a.color, text: `${a.label} · busy` });
-      }
-    }
-    for (const bk of overview?.bookings ?? []) {
-      if (bk.status !== "confirmed" || dayKey(bk.start_at, tz) !== dk) continue;
-      const p = pos(Date.parse(bk.start_at), Date.parse(bk.end_at));
-      out.push({ key: bk.id, ...p, text: `${fmtTime(bk.start_at, tz)} ${bk.guest_name}`, booking: true });
-    }
-    return out;
-  };
-
-  return (
-    <div className="week-scroll">
-      <div className="week" style={{ minWidth: 720 }}>
-        <div className="head" />
-        {days.map((d) => {
-          const dk = dayKey(d, tz);
-          return (
-            <div key={dk} className={`head ${dk === today ? "today" : ""}`}>
-              {fmt(d, tz, { weekday: "short" })}
-              <span className="num">{fmt(d, tz, { day: "numeric" })}</span>
-            </div>
-          );
-        })}
-        <div className="gutter" style={{ height }}>
-          {Array.from({ length: END_H - START_H }, (_, i) => (
-            <span key={i} style={{ top: i * PX_PER_H }}>{i === 0 ? "" : `${String(START_H + i).padStart(2, "0")}:00`}</span>
-          ))}
-        </div>
-        {days.map((d, i) => {
-          const dk = dayKey(d, tz);
-          const wd = fmt(d, tz, { weekday: "short" });
-          const nowM = minutesOfDay(Date.now(), tz);
-          return (
-            <div key={dk} className={`col ${wd === "Sat" || wd === "Sun" ? "weekend" : ""}`} style={{ height }}>
-              {items(i, dk).map((it) => (
-                <div
-                  key={it.key}
-                  className={`block ${it.booking ? "booking" : "busy"}`}
-                  style={{ top: it.top, height: it.height, background: it.booking ? undefined : it.color }}
-                  title={it.text}
-                >
-                  {it.height >= 18 ? it.text : ""}
-                </div>
-              ))}
-              {dk === today && nowM >= START_H * 60 && nowM <= END_H * 60 && (
-                <div className="now" style={{ top: ((nowM - START_H * 60) / 60) * PX_PER_H }} aria-label="Now" />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {!overview && <div className="loading" style={{ padding: 16 }}><div className="spinner" /></div>}
-    </div>
-  );
-}
-
 function Onboarding() {
   return (
     <div className="stack-lg" style={{ maxWidth: 680 }}>
@@ -274,7 +203,7 @@ function Onboarding() {
           <div className="step"><span className="num">3</span><div><p style={{ fontWeight: 600 }}>Share your link</p><p className="small muted">We create one for you straight away</p></div></div>
         </div>
         <ConnectButtons returnTo="/app" />
-        <p className="small faint">We only read when you're busy. We never see event titles, attendees or notes.</p>
+        <p className="small faint">Your event details are shown only to you and never stored. You can set any calendar to busy-only.</p>
       </div>
     </div>
   );

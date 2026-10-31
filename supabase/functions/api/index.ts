@@ -4,10 +4,10 @@
 import { admin, effectivePlan, Profile, requireUser } from "../_shared/db.ts";
 import { env } from "../_shared/env.ts";
 import { body, HttpError, isEmail, json, optStr, preflight, randomToken, redirect, str } from "../_shared/http.ts";
-import { authUrl, createEvent, deleteEvent, exchangeCode, Provider, ProviderAuthError } from "../_shared/providers.ts";
+import { authUrl, CalEvent, createEvent, deleteEvent, exchangeCode, fetchEvents, Provider, ProviderAuthError } from "../_shared/providers.ts";
 import { AccountRow, busyForUser, clearBusyCache, getAccessToken } from "../_shared/accounts.ts";
 import { generateSlots, Interval, isSlotAvailable, LinkRules, windowEnd } from "../_shared/slots.ts";
-import { isValidTimeZone } from "../_shared/tz.ts";
+import { isValidTimeZone, zonedToUtc } from "../_shared/tz.ts";
 import {
   addonAllowed,
   BookingRow,
@@ -218,10 +218,10 @@ route("GET", "/me/overview", async (req, _p, url) => {
   const live = url.searchParams.get("live") === "1";
   const [busy, bookingsRes, accountsRes] = await Promise.all([
     busyForUser(user.id, from, to, live),
-    admin().from("bookings").select("id,title,guest_name,guest_email,start_at,end_at,status,meeting_url,location_text,link_id")
+    admin().from("bookings").select("id,title,guest_name,guest_email,start_at,end_at,status,meeting_url,location_text,link_id,write_account_id")
       .eq("user_id", user.id).gte("end_at", new Date(from).toISOString()).lte("start_at", new Date(to).toISOString())
       .order("start_at"),
-    admin().from("connected_accounts").select("id,provider,email,label,color,status,last_error").eq("user_id", user.id).order("created_at"),
+    admin().from("connected_accounts").select("id,provider,email,label,color,status,last_error,show_details").eq("user_id", user.id).order("created_at"),
   ]);
   const busyById = new Map(busy.map((b) => [b.account.id, b]));
   return json({
@@ -234,6 +234,26 @@ route("GET", "/me/overview", async (req, _p, url) => {
     })),
     bookings: bookingsRes.data ?? [],
   });
+});
+
+// Event details for the signed-in owner (Google Calendar-style view). Fetched live, never stored.
+route("GET", "/me/events", async (req, _p, url) => {
+  const user = await requireUser(req);
+  const profile = await loadProfile(user.id);
+  const from = Number(url.searchParams.get("from")) || Date.now();
+  const to = Math.min(Number(url.searchParams.get("to")) || from + 7 * 86400000, from + 35 * 86400000);
+  const { data: accounts } = await admin().from("connected_accounts")
+    .select("id,user_id,provider,email,label,color,status,show_details").eq("user_id", user.id);
+  const results = await Promise.all((accounts ?? []).filter((a) => a.show_details).map(async (a) => {
+    try {
+      const token = await getAccessToken(a as AccountRow);
+      const events: CalEvent[] = await fetchEvents(a.provider as Provider, token, from, to, profile.timezone, zonedToUtc);
+      return { account_id: a.id, events };
+    } catch (e) {
+      return { account_id: a.id, events: [] as CalEvent[], error: e instanceof Error ? e.message : "Could not load events" };
+    }
+  }));
+  return json({ accounts: results }, 200, { "cache-control": "no-store" });
 });
 
 // ===================================================================================

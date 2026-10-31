@@ -31,6 +31,7 @@ export interface Account {
   color: string;
   status: "active" | "error" | "revoked";
   last_error: string | null;
+  show_details: boolean;
   busy: { start: number; end: number }[];
   error: string | null;
 }
@@ -76,4 +77,27 @@ export interface Booking {
   meeting_url: string | null;
   location_text: string | null;
   link_id: string | null;
+  write_account_id?: string | null;
+}
+
+export interface CalAttendee {
+  name: string | null;
+  email: string;
+  response: "accepted" | "declined" | "tentative" | "needsAction" | "organizer";
+}
+
+export interface CalEvent {
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  allDay: boolean;
+  location: string | null;
+  joinUrl: string | null;
+  openUrl: string | null;
+  description: string | null;
+  organizer: string | null;
+  attendees: CalAttendee[];
+  free: boolean;
+  declined: boolean;
 }

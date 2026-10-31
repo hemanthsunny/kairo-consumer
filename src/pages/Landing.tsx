@@ -91,7 +91,7 @@ export default function Landing() {
             { icon: <IconLayers />, t: "Connect every calendar", d: "Add each Google or Microsoft account you use: client, company, personal. We check all of them before offering a time." },
             { icon: <IconLink />, t: "One link per purpose", d: "A link for client calls, one for job interviews, one for friends. Each books into the calendar you choose, with a video link." },
             { icon: <IconBell />, t: "Reminders where you look", d: "Email reminders included. Add WhatsApp or SMS so you and your guests never miss a call." },
-            { icon: <IconShield />, t: "We never read your events", d: "We only see when you're busy, never titles, attendees or notes. Your client work stays private." },
+            { icon: <IconShield />, t: "Every meeting, one place", d: "See all your events from every account in one week, with one-click join links. Details are shown only to you and never stored, and any calendar can be set to busy-only." },
             { icon: <IconClock />, t: "Sensible rules built in", d: "No bookings in the past, minimum notice, buffers between calls, and nothing more than a month ahead unless you say so." },
             { icon: <IconCalendar />, t: "Share times in one tap", d: "Copy your next free times as text and paste them into any email, Slack or WhatsApp chat." },
           ].map((f) => (

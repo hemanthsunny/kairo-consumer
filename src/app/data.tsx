@@ -44,7 +44,7 @@ export function useAppLoader(userId: string | undefined) {
       return;
     }
     const [acc, cal, links] = await Promise.all([
-      supabase.from("connected_accounts").select("id,provider,email,label,color,status,last_error").order("created_at"),
+      supabase.from("connected_accounts").select("id,provider,email,label,color,status,last_error,show_details").order("created_at"),
       supabase.from("calendars").select("id,account_id,name,can_write,check_conflicts"),
       supabase.from("links").select("*").order("created_at"),
     ]);
