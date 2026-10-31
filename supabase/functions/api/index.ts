@@ -748,6 +748,9 @@ Deno.serve(async (req) => {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
     if (e instanceof ProviderAuthError) return json({ error: "A calendar connection needs to be refreshed" }, 409);
     console.error(e);
+    if (e instanceof Error && e.message.startsWith("Missing configuration")) {
+      return json({ error: `Setup incomplete: ${e.message}` }, 500);
+    }
     return json({ error: "Something went wrong. Please try again." }, 500);
   }
 });
