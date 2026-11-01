@@ -53,7 +53,7 @@ export default function Login() {
         <div className="stack" style={{ gap: 6 }}>
           <Link to="/" className="brand" style={{ padding: 0 }}><img src="/favicon.svg" alt="" />Kairo Link</Link>
           <h1 style={{ fontSize: 22 }}>{signup ? "Start your free trial" : "Welcome back"}</h1>
-          <p className="muted small">{signup ? "14 days, everything included. No card needed." : "Sign in to manage your calendars and links."}</p>
+          <p className="muted small">{signup ? "3 days, everything included. No card needed." : "Sign in to manage your calendars and links."}</p>
         </div>
         {error && <div className="alert error" role="alert">{error}</div>}
         {sent ? (

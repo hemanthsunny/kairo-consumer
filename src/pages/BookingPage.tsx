@@ -255,9 +255,11 @@ function BookForm({ data, slot, tz, onBack, onDone, onTaken }: {
       <label className="field">Email
         <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={200} />
       </label>
-      <label className="field">{data.link.ask_phone ? "Phone number" : "Mobile for a WhatsApp reminder (optional)"}
-        <input type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900123" maxLength={30} />
-      </label>
+      {data.link.ask_phone && (
+        <label className="field">Phone number
+          <input type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900123" maxLength={30} />
+        </label>
+      )}
       <label className="field">Anything to share beforehand? (optional)
         <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
       </label>
