@@ -35,14 +35,14 @@ export default function Settings() {
     if (!/^[a-z0-9][a-z0-9-]{2,30}$/.test(h)) return setError("Your address needs 3–31 lowercase letters, numbers or dashes");
     const p = phone.replace(/[\s()-]/g, "");
     if (p && !/^\+[1-9]\d{6,14}$/.test(p)) return setError("Enter your mobile with country code, e.g. +44 7700 900123");
-    if (!p && channels.some((c) => c !== "email")) return setError("Add your mobile number to get SMS reminders");
+    if (!p && channels.some((c) => c !== "email")) return setError("Add your mobile number to get WhatsApp or SMS reminders");
     setSaving(true);
     const { error } = await supabase.from("profiles").update({
       full_name: name.trim() || null,
       handle: h,
       timezone,
       phone_e164: p || null,
-      reminder_channels: channels.filter((c) => c !== "whatsapp").length ? channels.filter((c) => c !== "whatsapp") : ["email"],
+      reminder_channels: channels.length ? channels : ["email"],
     }).eq("id", profile.id);
     setSaving(false);
     if (error) {
@@ -122,7 +122,7 @@ export default function Settings() {
         </div>
 
         <div className="card stack">
-          <div className="spread"><h2>Reminders</h2>{!premiumish && <span className="badge accent">SMS on Premium</span>}</div>
+          <div className="spread"><h2>Reminders</h2>{!premiumish && <span className="badge accent">WhatsApp & SMS on Premium</span>}</div>
           <p className="small muted">You'll get a reminder 24 hours and 1 hour before each meeting booked through your links. Guests always get email reminders.</p>
           <label className="field" style={{ maxWidth: 320 }}>Mobile number
             <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900123" autoComplete="tel" />
@@ -130,6 +130,7 @@ export default function Settings() {
           <div className="list">
             {[
               ["email", "Email", "Included"],
+              ["whatsapp", "WhatsApp", premiumish ? "Premium · 150 a month" : "Premium"],
               ["sms", "SMS", premiumish ? "Premium · 30 a month" : "Premium"],
             ].map(([key, label, note]) => (
               <div className="list-item" key={key}>
@@ -143,7 +144,7 @@ export default function Settings() {
               </div>
             ))}
           </div>
-          {plan === "trial" && <p className="small faint">Your trial includes 5 SMS reminders so you can try them.</p>}
+          {plan === "trial" && <p className="small faint">Your trial includes 20 WhatsApp and 5 SMS reminders so you can try them.</p>}
         </div>
 
         <div><button className="btn primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></div>
@@ -171,9 +172,9 @@ export default function Settings() {
             </div>
             <div className="card flat stack plan featured" style={{ gap: 8 }}>
               <h3>Premium</h3>
-              <p className="small muted">Everything in Basic plus SMS reminders (30 a month) and daily limits.</p>
-              <button className="btn primary" onClick={() => checkout("premium", "month")} disabled={!!billingBusy}>£11 / month</button>
-              <button className="btn ghost sm" onClick={() => checkout("premium", "year")} disabled={!!billingBusy}>or £110 / year</button>
+              <p className="small muted">Everything in Basic plus WhatsApp and SMS reminders, daily limits.</p>
+              <button className="btn primary" onClick={() => checkout("premium", "month")} disabled={!!billingBusy}>£9 / month</button>
+              <button className="btn ghost sm" onClick={() => checkout("premium", "year")} disabled={!!billingBusy}>or £90 / year</button>
             </div>
           </div>
         )}

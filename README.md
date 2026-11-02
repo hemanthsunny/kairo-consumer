@@ -6,7 +6,7 @@ Consumer spin-off of Kairo HR. Pilot domain: **https://link.kairohr.co**
 - **Web app**: React + TypeScript + Vite, hosted on Netlify (`/` landing, `/app` dashboard, `/:handle/:slug` booking pages)
 - **API**: one Supabase Edge Function, `api` (`supabase/functions/api`), reached via `/api/*`, which Netlify proxies to Supabase so OAuth redirects stay on our domain
 - **Database**: Supabase project `Kairo-Consumer` (`aqzbnqbuxvbgwtendieh`, eu-west-1). Schema in `supabase/migrations`
-- **Billing**: Stripe Checkout + Customer Portal. Basic £3/mo (£30/yr), Premium £11/mo (£110/yr, SMS reminders), 3-day trial without a card
+- **Billing**: Stripe Checkout + Customer Portal. Basic £3/mo (£30/yr), Premium £9/mo (£90/yr), 3-day trial without a card
 
 ## How it works
 
@@ -17,7 +17,7 @@ Consumer spin-off of Kairo HR. Pilot domain: **https://link.kairohr.co**
 | 2-minute busy cache; bookings always re-check live; database exclusion constraint blocks double-booking | `_shared/accounts.ts`, `bookings_no_overlap` |
 | Booking writes the event into the chosen calendar with Meet/Teams link; emailed `.ics` fallback | `api/index.ts` → `/public/:handle/:slug/book` |
 | Reminders: outbox table + pg_cron every 5 min → `/api/cron/reminders` (24 h and 1 h before) | `_shared/notify.ts` |
-| SMS add-on (Premium, 30 a month; trial 5). WhatsApp is built but hidden and switched off (`whatsapp_enabled = false`) | `addonAllowed` |
+| WhatsApp / SMS add-ons: off until enabled in `app_settings`; Premium caps 150 WhatsApp / 30 SMS a month; trial 20 / 5 | `addonAllowed` |
 | Refresh tokens encrypted in Supabase Vault; token tables have no client access | `account_tokens`, `store_refresh_token` |
 
 ## Local development

@@ -21,7 +21,7 @@ function Privacy() {
       <h2>What we store</h2>
       <p>Your account details (name, email, time zone, optional mobile number), encrypted access tokens for each connected calendar, a short-lived cache of busy times (start and end only; never titles or other event details), your booking links, and the bookings guests make (name, email, optional phone and note). Payment details are handled by Stripe; we never see your card.</p>
       <h2>Reminders</h2>
-      <p>Emails are sent through Resend. If you turn on SMS reminders, your mobile number and the meeting time and link are sent through Twilio to deliver the message.</p>
+      <p>Emails are sent through Resend. If you turn on WhatsApp or SMS reminders, your mobile number and the meeting time and link are sent through Meta (WhatsApp Business) or Twilio to deliver the message.</p>
       <h2>Your choices</h2>
       <p>You can disconnect any calendar at any time, which deletes its tokens and cached busy times immediately. You can also revoke access from your Google or Microsoft account settings. To delete your account and all data, email contact@kairohr.co and we will do it within 30 days. Data is stored in the EU (Ireland).</p>
       <h2>Contact</h2>
@@ -39,7 +39,7 @@ function Terms() {
       <h2>Your account</h2>
       <p>Only connect calendars you are allowed to use. You are responsible for the meetings booked through your links and for keeping your sign-in secure.</p>
       <h2>Plans and billing</h2>
-      <p>New accounts get a 3-day free trial. After that, Basic is £3 a month (or £30 a year) and Premium is £11 a month (or £110 a year), including VAT where applicable. Premium includes up to 30 SMS reminders per month. You can cancel any time from Settings; your plan runs to the end of the period you've paid for.</p>
+      <p>New accounts get a 3-day free trial. After that, Basic is £3 a month (or £30 a year) and Premium is £9 a month (or £90 a year), including VAT where applicable. Premium includes up to 150 WhatsApp and 30 SMS reminders per month. You can cancel any time from Settings; your plan runs to the end of the period you've paid for.</p>
       <h2>Fair use</h2>
       <p>Don't use Kairo Link to send spam or to book people who haven't asked to meet you. We may suspend accounts that do.</p>
       <h2>Availability</h2>

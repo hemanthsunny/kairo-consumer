@@ -56,7 +56,7 @@ function HeroMock() {
       </div>
       <div className="row" style={{ marginTop: 14, padding: 10, borderRadius: 10, background: "#ecfdf5", fontSize: 13 }}>
         <span style={{ fontSize: 18 }}>💬</span>
-        <span><strong>SMS</strong> · In 1 hour: Intro call with Sam — 14:00 · Join on Meet</span>
+        <span><strong>WhatsApp</strong> · In 1 hour: Intro call with Sam — 14:00 · Join on Meet</span>
       </div>
     </div>
   );
@@ -72,7 +72,7 @@ export default function Landing() {
           <h1>One booking link for every calendar you live in.</h1>
           <p className="lead">
             Client inbox, your own company, personal life. Connect them all, share one link, and never get double-booked again.
-            Reminders land by text so nothing slips.
+            Reminders land on WhatsApp or SMS so nothing slips.
           </p>
           <div className="row wrap" style={{ marginTop: 28 }}>
             <Link to="/login?mode=signup" className="btn primary lg">Start 3-day free trial</Link>
@@ -90,7 +90,7 @@ export default function Landing() {
           {[
             { icon: <IconLayers />, t: "Connect every calendar", d: "Add each Google or Microsoft account you use: client, company, personal. We check all of them before offering a time." },
             { icon: <IconLink />, t: "One link per purpose", d: "A link for client calls, one for job interviews, one for friends. Each books into the calendar you choose, with a video link." },
-            { icon: <IconBell />, t: "Reminders where you look", d: "Email reminders included. Add SMS reminders on Premium so you never miss a call." },
+            { icon: <IconBell />, t: "Reminders where you look", d: "Email reminders included. Add WhatsApp or SMS so you and your guests never miss a call." },
             { icon: <IconShield />, t: "Every meeting, one place", d: "See all your events from every account in one week, with one-click join links. Details are shown only to you and never stored, and any calendar can be set to busy-only." },
             { icon: <IconClock />, t: "Sensible rules built in", d: "No bookings in the past, minimum notice, buffers between calls, and nothing more than a month ahead unless you say so." },
             { icon: <IconCalendar />, t: "Share times in one tap", d: "Copy your next free times as text and paste them into any email, Slack or WhatsApp chat." },
@@ -123,11 +123,13 @@ export default function Landing() {
           </div>
           <div className="card plan featured">
             <div className="spread"><h3>Premium</h3><span className="badge accent">Most useful</span></div>
-            <p className="price" style={{ marginTop: 8 }}>£11<small> / month</small></p>
-            <p className="small muted">or £110 a year</p>
+            <p className="price" style={{ marginTop: 8 }}>£9<small> / month</small></p>
+            <p className="small muted">or £90 a year</p>
             <ul className="ticks">
               <li>Everything in Basic</li>
+              <li>WhatsApp reminders (150 a month)</li>
               <li>SMS reminders (30 a month)</li>
+              <li>Reminders for your guests on WhatsApp</li>
               <li>Daily booking limits per link</li>
               <li>Priority support</li>
             </ul>
