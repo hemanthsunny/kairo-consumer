@@ -38,6 +38,7 @@ export interface Profile {
   phone_e164: string | null;
   phone_verified: boolean;
   reminder_channels: string[];
+  reminder_prefs: unknown;
   plan: "trial" | "basic" | "premium" | "inactive";
   trial_ends_at: string;
 }

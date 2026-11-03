@@ -1,11 +1,48 @@
 // Email (always), WhatsApp + SMS (Premium add-ons). Everything goes through the outbox.
 
-import { admin, effectivePlan, getSetting, Profile } from "./db.ts";
+import { admin, effectivePlan, getSetting, type Profile } from "./db.ts";
 import { env } from "./env.ts";
 import { escapeHtml } from "./http.ts";
 
 export type Channel = "email" | "whatsapp" | "sms";
-export type Kind = "confirmation" | "reminder_24h" | "reminder_1h" | "cancellation";
+export type Kind = "confirmation" | "reminder_24h" | "reminder_1h" | "reminder" | "event_reminder" | "cancellation";
+
+export const REMINDER_OFFSETS = [10, 30, 1440];
+
+export interface ReminderPrefs {
+  scope: "bookings" | "all";
+  email: number[];
+  whatsapp: number[];
+  sms: number[];
+}
+
+export function normalizePrefs(raw: unknown): ReminderPrefs {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const list = (v: unknown) =>
+    Array.isArray(v) ? Array.from(new Set(v.map(Number).filter((n) => REMINDER_OFFSETS.includes(n)))).sort((a, b) => b - a) : [];
+  return {
+    scope: r.scope === "all" ? "all" : "bookings",
+    email: Array.isArray(r.email) ? list(r.email) : [1440, 30],
+    whatsapp: list(r.whatsapp),
+    sms: list(r.sms),
+  };
+}
+
+export function offsetLabel(min: number) {
+  if (min >= 1440) return "Tomorrow";
+  if (min >= 60) return `In ${Math.round(min / 60)} hour${min >= 120 ? "s" : ""}`;
+  return `In ${min} min`;
+}
+
+export interface EventSnapshot {
+  id: string;
+  title: string;
+  start: number;
+  end: number;
+  join_url: string | null;
+  location: string | null;
+  account_label: string | null;
+}
 
 export interface BookingRow {
   id: string;
@@ -70,13 +107,13 @@ export async function enqueueForBooking(profile: Profile, b: BookingRow) {
   add("guest", "email", "confirmation", now);
   add("host", "email", "confirmation", now);
 
-  const hostChannels = (profile.reminder_channels ?? ["email"]).filter((c) => ["email", "whatsapp", "sms"].includes(c)) as Channel[];
+  // Guests get fixed reminders. The host's reminders follow their settings and are
+  // created by the cron scan shortly before they are due.
   for (const [kind, before] of [["reminder_24h", 24 * 3600000], ["reminder_1h", 3600000]] as const) {
     const at = start - before;
     if (at <= now + 5 * 60000) continue;
     add("guest", "email", kind, at);
     if (b.guest_phone) add("guest", "whatsapp", kind, at);
-    for (const ch of hostChannels) add("host", ch, kind, at);
   }
   if (rows.length) await admin().from("notification_outbox").upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true });
 }
@@ -106,7 +143,7 @@ export function manageUrl(b: BookingRow) {
   return `${env.siteUrl}/b/${b.manage_token}`;
 }
 
-function lines(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind) {
+function lines(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind, offsetMin?: number | null) {
   const tz = recipient === "host" ? profile.timezone : (b.guest_timezone || profile.timezone);
   const w = fmtWhen(b.start_at, tz);
   const other = recipient === "host" ? b.guest_name : (profile.full_name || profile.handle);
@@ -115,13 +152,15 @@ function lines(profile: Profile, b: BookingRow, recipient: "host" | "guest", kin
     confirmation: recipient === "host" ? `New booking: ${b.guest_name}` : `Confirmed: ${b.title} with ${other}`,
     reminder_24h: `Tomorrow: ${b.title} with ${other}`,
     reminder_1h: `In 1 hour: ${b.title} with ${other}`,
+    reminder: `${offsetLabel(offsetMin ?? 60)}: ${b.title} with ${other}`,
+    event_reminder: `${offsetLabel(offsetMin ?? 60)}: ${b.title}`,
     cancellation: `Cancelled: ${b.title} with ${other}`,
   }[kind];
   return { tz, w, other, where, headline };
 }
 
-export function renderEmail(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind) {
-  const { w, where, headline } = lines(profile, b, recipient, kind);
+export function renderEmail(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind, offsetMin?: number | null) {
+  const { w, where, headline } = lines(profile, b, recipient, kind, offsetMin);
   const rows: [string, string][] = [["When", w.full], ["What", b.title]];
   if (recipient === "host") {
     rows.push(["Guest", `${b.guest_name} <${b.guest_email}>`]);
@@ -155,13 +194,48 @@ export function renderEmail(profile: Profile, b: BookingRow, recipient: "host" |
   return { subject: headline, html, text };
 }
 
-export function renderShort(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind) {
-  const { w, where, headline } = lines(profile, b, recipient, kind);
+export function renderShort(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind, offsetMin?: number | null) {
+  const { w, where, headline } = lines(profile, b, recipient, kind, offsetMin);
   return `${headline}\n${w.full}${where && kind !== "cancellation" ? `\nJoin: ${where}` : ""}`;
 }
 
 // ---------------------------------------------------------------------------------
 // Senders
+
+export function renderEventEmail(profile: Profile, ev: EventSnapshot, offsetMin: number) {
+  const w = fmtWhen(new Date(ev.start).toISOString(), profile.timezone);
+  const headline = `${offsetLabel(offsetMin)}: ${ev.title}`;
+  const rows: [string, string][] = [["When", w.full], ["What", ev.title]];
+  if (ev.account_label) rows.push(["Calendar", ev.account_label]);
+  if (ev.join_url) rows.push(["Join", ev.join_url]);
+  else if (ev.location) rows.push(["Where", ev.location]);
+  const join = ev.join_url
+    ? `<p style="margin:24px 0 0"><a href="${escapeHtml(ev.join_url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">Join now</a></p>`
+    : "";
+  const html = `<!doctype html><html><body style="margin:0;background:#f6f7fb;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827">
+<div style="max-width:520px;margin:0 auto;padding:32px 20px">
+<div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px">
+<p style="margin:0 0 4px;font-size:13px;color:#6b7280">${escapeHtml(env.productName)}</p>
+<h1 style="margin:0 0 20px;font-size:20px;font-weight:600">${escapeHtml(headline)}</h1>
+<table style="border-collapse:collapse;width:100%;font-size:15px">${
+    rows.map(([k, v]) =>
+      `<tr><td style="padding:6px 12px 6px 0;color:#6b7280;vertical-align:top;width:70px">${k}</td><td style="padding:6px 0">${
+        /^https?:\/\//.test(v) ? `<a href="${escapeHtml(v)}" style="color:#4f46e5">${escapeHtml(v)}</a>` : escapeHtml(v)
+      }</td></tr>`
+    ).join("")
+  }</table>${join}
+</div>
+<p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:16px">Change reminder times in ${escapeHtml(env.productName)} → Settings</p>
+</div></body></html>`;
+  const text = `${headline}\n\n${rows.map(([k, v]) => `${k}: ${v}`).join("\n")}\n`;
+  return { subject: headline, html, text };
+}
+
+export function renderEventShort(profile: Profile, ev: EventSnapshot, offsetMin: number) {
+  const w = fmtWhen(new Date(ev.start).toISOString(), profile.timezone);
+  const where = ev.join_url ?? ev.location;
+  return `${offsetLabel(offsetMin)}: ${ev.title}\n${w.full}${where ? `\nJoin: ${where}` : ""}`;
+}
 
 export async function sendEmail(to: string, subject: string, html: string, text: string, attachments?: { filename: string; content: string }[]) {
   if (!env.resendKey) throw new Error("Email is not configured (RESEND_API_KEY)");

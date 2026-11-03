@@ -1,8 +1,8 @@
 // Token lifecycle and merged busy time across every connected account.
 
 import { admin } from "./db.ts";
-import { fetchBusy, Provider, ProviderAuthError, refresh } from "./providers.ts";
-import { Interval } from "./slots.ts";
+import { fetchBusy, type Provider, ProviderAuthError, refresh } from "./providers.ts";
+import type { Interval } from "./slots.ts";
 
 export interface AccountRow {
   id: string;

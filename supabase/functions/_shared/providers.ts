@@ -2,7 +2,7 @@
 // write events for bookings made through our links.
 
 import { env, redirectUri } from "./env.ts";
-import { Interval } from "./slots.ts";
+import type { Interval } from "./slots.ts";
 
 export type Provider = "google" | "microsoft";
 

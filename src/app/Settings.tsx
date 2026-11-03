@@ -1,9 +1,38 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { ReminderPrefs, supabase } from "../lib/supabase";
 import { allTimeZones, browserTz } from "../lib/time";
 import { useApp } from "./data";
+
+const TIMING_OPTIONS: [string, string][] = [
+  ["", "Off"],
+  ["10", "10 min before"],
+  ["30", "30 min before"],
+  ["30,10", "30 min and 10 min before"],
+  ["1440", "1 day before"],
+  ["1440,30", "1 day and 30 min before"],
+  ["1440,10", "1 day and 10 min before"],
+];
+
+type Ch = "email" | "whatsapp" | "sms";
+
+function timingKey(list: number[] | undefined) {
+  const k = [...(list ?? [])].sort((a, b) => b - a).join(",");
+  return TIMING_OPTIONS.some(([v]) => v === k) ? k : k ? "30" : "";
+}
+
+function initialPrefs(p: ReminderPrefs | null, channels: string[]): Record<Ch, string> & { scope: "bookings" | "all" } {
+  if (p) return { scope: p.scope === "all" ? "all" : "bookings", email: timingKey(p.email), whatsapp: timingKey(p.whatsapp), sms: timingKey(p.sms) };
+  return {
+    scope: "bookings",
+    email: channels.includes("email") ? "1440,30" : "",
+    whatsapp: channels.includes("whatsapp") ? "30" : "",
+    sms: channels.includes("sms") ? "30" : "",
+  };
+}
+
+const toList = (k: string) => (k ? k.split(",").map(Number) : []);
 
 export default function Settings() {
   const { profile, plan, reload, toast } = useApp();
@@ -12,7 +41,7 @@ export default function Settings() {
   const [handle, setHandle] = useState(profile.handle);
   const [timezone, setTimezone] = useState(profile.timezone);
   const [phone, setPhone] = useState(profile.phone_e164 ?? "");
-  const [channels, setChannels] = useState<string[]>(profile.reminder_channels ?? ["email"]);
+  const [prefs, setPrefs] = useState(() => initialPrefs(profile.reminder_prefs, profile.reminder_channels ?? ["email"]));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [billingBusy, setBillingBusy] = useState<string | null>(null);
@@ -36,14 +65,15 @@ export default function Settings() {
     if (!/^[a-z0-9][a-z0-9-]{2,30}$/.test(h)) return setError("Your address needs 3–31 lowercase letters, numbers or dashes");
     const p = phone.replace(/[\s()-]/g, "");
     if (p && !/^\+[1-9]\d{6,14}$/.test(p)) return setError("Enter your mobile with country code, e.g. +44 7700 900123");
-    if (!p && channels.some((c) => c !== "email")) return setError("Add your mobile number to get WhatsApp or SMS reminders");
+    if (!p && (prefs.whatsapp || prefs.sms)) return setError("Add your mobile number to get WhatsApp or SMS reminders");
     setSaving(true);
     const { error } = await supabase.from("profiles").update({
       full_name: name.trim() || null,
       handle: h,
       timezone,
       phone_e164: p || null,
-      reminder_channels: channels.length ? channels : ["email"],
+      reminder_prefs: { scope: prefs.scope, email: toList(prefs.email), whatsapp: toList(prefs.whatsapp), sms: toList(prefs.sms) },
+      reminder_channels: (["email", "whatsapp", "sms"] as Ch[]).filter((c) => prefs[c]),
     }).eq("id", profile.id);
     setSaving(false);
     if (error) {
@@ -54,9 +84,6 @@ export default function Settings() {
     reload();
   }
 
-  function toggleChannel(c: string, on: boolean) {
-    setChannels((prev) => (on ? Array.from(new Set([...prev, c])) : prev.filter((x) => x !== c)));
-  }
 
   async function test(channel: string) {
     try {
@@ -123,26 +150,40 @@ export default function Settings() {
 
         <div className="card stack">
           <div className="spread"><h2>Reminders</h2>{!premiumish && <span className="badge accent">WhatsApp & SMS on Premium</span>}</div>
-          <p className="small muted">You'll get a reminder 24 hours and 1 hour before each meeting booked through your links. Guests always get email reminders.</p>
-          <label className="field" style={{ maxWidth: 320 }}>Mobile number
-            <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900123" autoComplete="tel" />
-          </label>
+          <p className="small muted">Choose when each channel reminds you. Your guests always get an email the day before and an hour before.</p>
+          <div className="grid-2" style={{ gap: 14 }}>
+            <label className="field">Remind me about
+              <select value={prefs.scope} onChange={(e) => setPrefs({ ...prefs, scope: e.target.value as "bookings" | "all" })}>
+                <option value="bookings">Meetings booked through my links</option>
+                <option value="all" disabled={!premiumish}>All events in my calendars{premiumish ? "" : " (Premium)"}</option>
+              </select>
+              {prefs.scope === "all" && <span className="hint">Covers calendars with “Show event details” on. SMS stays for bookings only, to save your monthly allowance.</span>}
+            </label>
+            <label className="field">Mobile number
+              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+44 7700 900123" autoComplete="tel" />
+            </label>
+          </div>
           <div className="list">
-            {[
+            {([
               ["email", "Email", "Included"],
-              ["whatsapp", "WhatsApp", premiumish ? "Premium · 300 a month" : "Premium"],
-              ["sms", "SMS", premiumish ? "Premium · 50 a month" : "Premium"],
-            ].map(([key, label, note]) => (
-              <div className="list-item" key={key}>
-                <label className="row grow" style={{ gap: 10 }}>
-                  <input type="checkbox" checked={channels.includes(key)} disabled={key !== "email" && !premiumish}
-                    onChange={(e) => toggleChannel(key, e.target.checked)} />
-                  <span style={{ fontWeight: 500 }}>{label}</span>
-                  <span className="small faint">{note}</span>
-                </label>
-                <button type="button" className="btn ghost sm" onClick={() => test(key)} disabled={key !== "email" && (!premiumish || !profile.phone_e164)}>Send test</button>
-              </div>
-            ))}
+              ["whatsapp", "WhatsApp", premiumish ? "300 a month" : "Premium"],
+              ["sms", "SMS", premiumish ? "50 a month" : "Premium"],
+            ] as [Ch, string, string][]).map(([key, label, note]) => {
+              const locked = key !== "email" && !premiumish;
+              return (
+                <div className="list-item reminder-row" key={key}>
+                  <div className="grow" style={{ minWidth: 110 }}>
+                    <div style={{ fontWeight: 500 }}>{label}</div>
+                    <div className="small faint">{note}</div>
+                  </div>
+                  <select aria-label={`${label} reminders`} value={locked ? "" : prefs[key]} disabled={locked}
+                    onChange={(e) => setPrefs({ ...prefs, [key]: e.target.value })}>
+                    {TIMING_OPTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                  </select>
+                  <button type="button" className="btn ghost sm" onClick={() => test(key)} disabled={locked || (key !== "email" && !profile.phone_e164)}>Send test</button>
+                </div>
+              );
+            })}
           </div>
           
         </div>

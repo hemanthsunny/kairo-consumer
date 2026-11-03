@@ -1,22 +1,26 @@
 // Kairo Link API — one Edge Function, routed by path.
 // Public site proxies https://<site>/api/* to this function (see netlify.toml).
 
-import { admin, effectivePlan, Profile, requireUser } from "../_shared/db.ts";
+import { admin, effectivePlan, type Profile, requireUser } from "../_shared/db.ts";
 import { env } from "../_shared/env.ts";
 import { body, HttpError, isEmail, json, optStr, preflight, randomToken, redirect, str } from "../_shared/http.ts";
-import { authUrl, CalEvent, createEvent, deleteEvent, exchangeCode, fetchEvents, Provider, ProviderAuthError } from "../_shared/providers.ts";
-import { AccountRow, busyForUser, clearBusyCache, getAccessToken } from "../_shared/accounts.ts";
-import { generateSlots, Interval, isSlotAvailable, LinkRules, windowEnd } from "../_shared/slots.ts";
+import { authUrl, type CalEvent, createEvent, deleteEvent, exchangeCode, fetchEvents, type Provider, ProviderAuthError } from "../_shared/providers.ts";
+import { type AccountRow, busyForUser, clearBusyCache, getAccessToken } from "../_shared/accounts.ts";
+import { generateSlots, type Interval, isSlotAvailable, type LinkRules, windowEnd } from "../_shared/slots.ts";
 import { isValidTimeZone, zonedToUtc } from "../_shared/tz.ts";
 import {
   addonAllowed,
-  BookingRow,
+  type BookingRow,
   buildIcs,
   enqueueCancellation,
   enqueueForBooking,
+  type EventSnapshot,
   fmtWhen,
-  Kind,
+  type Kind,
+  normalizePrefs,
   renderEmail,
+  renderEventEmail,
+  renderEventShort,
   renderShort,
   sendEmail,
   sendSms,
@@ -531,8 +535,8 @@ route("POST", "/me/test-reminder", async (req) => {
     guest_phone: null,
     guest_note: null,
     guest_timezone: null,
-    start_at: new Date(Date.now() + 3600000).toISOString(),
-    end_at: new Date(Date.now() + 5400000).toISOString(),
+    start_at: new Date(Date.now() + 1800000).toISOString(),
+    end_at: new Date(Date.now() + 3600000).toISOString(),
     status: "confirmed",
     meeting_url: "https://meet.google.com/abc-defg-hij",
     location_text: null,
@@ -541,15 +545,15 @@ route("POST", "/me/test-reminder", async (req) => {
   };
   if (channel === "email") {
     if (!profile.email) throw new HttpError(400, "No email on your profile");
-    const m = renderEmail(profile, fake, "host", "reminder_1h");
+    const m = renderEmail(profile, fake, "host", "reminder", 30);
     await sendEmail(profile.email, m.subject, m.html, m.text);
   } else {
     if (!profile.phone_e164) throw new HttpError(400, "Add your mobile number first");
     if (!(await addonAllowed(profile, channel))) {
       throw new HttpError(403, channel === "whatsapp" ? "WhatsApp reminders aren't available on your plan yet" : "SMS reminders aren't available on your plan yet");
     }
-    if (channel === "whatsapp") await sendWhatsApp(profile.phone_e164, waParams(profile, fake, "host", "reminder_1h"));
-    else await sendSms(profile.phone_e164, renderShort(profile, fake, "host", "reminder_1h"));
+    if (channel === "whatsapp") await sendWhatsApp(profile.phone_e164, waParams(renderShort(profile, fake, "host", "reminder", 30)));
+    else await sendSms(profile.phone_e164, renderShort(profile, fake, "host", "reminder", 30));
   }
   return json({ ok: true });
 });
@@ -557,8 +561,8 @@ route("POST", "/me/test-reminder", async (req) => {
 // ===================================================================================
 // Outbox processing (cron every few minutes + immediately after booking)
 
-function waParams(profile: Profile, b: BookingRow, recipient: "host" | "guest", kind: Kind): string[] {
-  const s = renderShort(profile, b, recipient, kind).split("\n");
+function waParams(short: string): string[] {
+  const s = short.split("\n");
   return [s[0] ?? "", s[1] ?? "", (s[2] ?? "").replace(/^Join: /, "") || "See your calendar invite"];
 }
 
@@ -578,6 +582,28 @@ async function processOutbox(opts: { bookingId?: string; attachIcs?: boolean } =
     const finish = (status: string, extra: Record<string, unknown> = {}) =>
       db.from("notification_outbox").update({ status, ...extra }).eq("id", job.id);
     try {
+      if (job.kind === "event_reminder") {
+        const profile = await loadProfile(job.user_id);
+        const ev = job.event as EventSnapshot | null;
+        if (!ev) { await finish("skipped", { last_error: "No event" }); skipped++; continue; }
+        let providerId: string | undefined;
+        if (job.channel === "email") {
+          if (!profile.email) { await finish("skipped", { last_error: "No email", event: null }); skipped++; continue; }
+          const m = renderEventEmail(profile, ev, job.offset_min ?? 30);
+          providerId = await sendEmail(profile.email, m.subject, m.html, m.text);
+        } else {
+          if (!profile.phone_e164 || !(await addonAllowed(profile, job.channel))) {
+            await finish("skipped", { last_error: profile.phone_e164 ? "Add-on not active or monthly cap reached" : "No phone number", event: null });
+            skipped++;
+            continue;
+          }
+          const short = renderEventShort(profile, ev, job.offset_min ?? 30);
+          providerId = job.channel === "whatsapp" ? await sendWhatsApp(profile.phone_e164, waParams(short)) : await sendSms(profile.phone_e164, short);
+        }
+        await finish("sent", { sent_at: new Date().toISOString(), provider_message_id: providerId ?? null, last_error: null, event: null });
+        sent++;
+        continue;
+      }
       const { data: booking } = await db.from("bookings").select("*").eq("id", job.booking_id).maybeSingle();
       if (!booking) { await finish("skipped", { last_error: "Booking gone" }); skipped++; continue; }
       if (job.kind !== "cancellation" && booking.status !== "confirmed") {
@@ -591,7 +617,7 @@ async function processOutbox(opts: { bookingId?: string; attachIcs?: boolean } =
       if (job.channel === "email") {
         const to = recipient === "host" ? profile.email : booking.guest_email;
         if (!to) { await finish("skipped", { last_error: "No email" }); skipped++; continue; }
-        const m = renderEmail(profile, booking, recipient, kind);
+        const m = renderEmail(profile, booking, recipient, kind, job.offset_min);
         const attach = opts.attachIcs && recipient === "guest" && (kind === "confirmation" || kind === "cancellation")
           ? [{
             filename: "invite.ics",
@@ -609,9 +635,8 @@ async function processOutbox(opts: { bookingId?: string; attachIcs?: boolean } =
         }
         const e164 = phone.startsWith("+") ? phone.replace(/[^\d+]/g, "") : phone.replace(/\D/g, "");
         if (!e164.startsWith("+")) { await finish("skipped", { last_error: "Phone needs a country code" }); skipped++; continue; }
-        providerId = job.channel === "whatsapp"
-          ? await sendWhatsApp(e164, waParams(profile, booking, recipient, kind))
-          : await sendSms(e164, renderShort(profile, booking, recipient, kind));
+        const short = renderShort(profile, booking, recipient, kind, job.offset_min);
+        providerId = job.channel === "whatsapp" ? await sendWhatsApp(e164, waParams(short)) : await sendSms(e164, short);
       }
       await finish("sent", { sent_at: new Date().toISOString(), provider_message_id: providerId ?? null, last_error: null });
       sent++;
@@ -619,6 +644,7 @@ async function processOutbox(opts: { bookingId?: string; attachIcs?: boolean } =
       const msg = e instanceof Error ? e.message : String(e);
       const retry = job.attempts + 1 < 3;
       await finish(retry ? "pending" : "failed", {
+        ...(retry ? {} : { event: null }),
         last_error: msg.slice(0, 300),
         send_at: new Date(Date.now() + 5 * 60000).toISOString(),
       });
@@ -628,15 +654,148 @@ async function processOutbox(opts: { bookingId?: string; attachIcs?: boolean } =
   return { sent, failed, skipped };
 }
 
+
+// ---- host reminders: created from current settings just before they are due ----
+
+const EVENT_CACHE_MS = 10 * 60000;
+
+async function upcomingEvents(userId: string, from: number, to: number): Promise<(EventSnapshot & { account_id: string })[]> {
+  const db = admin();
+  const { data: accounts } = await db.from("connected_accounts")
+    .select("id,user_id,provider,email,label,color,status,show_details").eq("user_id", userId).eq("show_details", true);
+  const out: (EventSnapshot & { account_id: string })[] = [];
+  for (const a of accounts ?? []) {
+    if (a.status === "revoked") continue;
+    const { data: c } = await db.from("event_cache").select("*").eq("account_id", a.id).maybeSingle();
+    let events: EventSnapshot[];
+    if (c && Date.now() - Date.parse(c.fetched_at) < EVENT_CACHE_MS && Date.parse(c.range_start) <= from && Date.parse(c.range_end) >= to) {
+      events = c.events as EventSnapshot[];
+    } else {
+      try {
+        const rangeFrom = Date.now() - 3600000;
+        const rangeTo = Date.now() + 26 * 3600000;
+        const token = await getAccessToken(a as AccountRow);
+        const { data: prof } = await db.from("profiles").select("timezone").eq("id", userId).single();
+        const raw = await fetchEvents(a.provider as Provider, token, rangeFrom, rangeTo, prof?.timezone ?? "Europe/London", zonedToUtc);
+        events = raw.filter((e) => !e.allDay && !e.declined && !e.free).map((e) => ({
+          id: e.id,
+          title: e.title.slice(0, 150),
+          start: e.start,
+          end: e.end,
+          join_url: e.joinUrl,
+          location: e.location ? e.location.slice(0, 200) : null,
+          account_label: a.label,
+        }));
+        await db.from("event_cache").upsert({
+          account_id: a.id,
+          range_start: new Date(rangeFrom).toISOString(),
+          range_end: new Date(rangeTo).toISOString(),
+          events,
+          fetched_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error("event scan", a.id, e);
+        continue;
+      }
+    }
+    for (const e of events) if (e.start >= from && e.start <= to) out.push({ ...e, account_id: a.id });
+  }
+  return out;
+}
+
+async function scanReminders() {
+  const db = admin();
+  const now = Date.now();
+  const LEAD = 60000; // create up to a minute early
+  const LATE = 5 * 60000; // still send if we are up to 5 minutes late
+  const { data: profiles } = await db.from("profiles").select("*");
+  let queued = 0;
+  for (const raw of profiles ?? []) {
+    const profile = raw as Profile;
+    try {
+      const prefs = normalizePrefs(profile.reminder_prefs);
+      const premium = effectivePlan(profile) === "premium" || effectivePlan(profile) === "trial";
+      const channels = (["email", "whatsapp", "sms"] as const)
+        .filter((ch) => prefs[ch].length && (ch === "email" || (premium && profile.phone_e164)));
+      if (!channels.length) continue;
+      const maxOff = Math.max(...channels.flatMap((ch) => prefs[ch]));
+      const from = now;
+      const to = now + maxOff * 60000 + LEAD;
+      const rows: Record<string, unknown>[] = [];
+      const due = (start: number, off: number) => {
+        const at = start - off * 60000;
+        return at <= now + LEAD && at > now - LATE && start > now;
+      };
+
+      const { data: bookings } = await db.from("bookings").select("id,start_at,provider_event_id")
+        .eq("user_id", profile.id).eq("status", "confirmed")
+        .gt("start_at", new Date(from).toISOString()).lte("start_at", new Date(to).toISOString());
+      for (const b of bookings ?? []) {
+        const start = Date.parse(b.start_at);
+        for (const ch of channels) for (const off of prefs[ch]) {
+          if (!due(start, off)) continue;
+          rows.push({
+            user_id: profile.id, booking_id: b.id, recipient: "host", channel: ch, kind: "reminder", offset_min: off,
+            send_at: new Date(start - off * 60000).toISOString(),
+            dedupe_key: `r:${b.id}:${ch}:${off}`,
+          });
+        }
+      }
+
+      if (prefs.scope === "all" && premium) {
+        const evChannels = channels.filter((ch) => ch !== "sms");
+        if (evChannels.length) {
+          const ownEvents = new Set((bookings ?? []).map((b) => b.provider_event_id).filter(Boolean));
+          const { data: moreBookings } = await db.from("bookings").select("provider_event_id")
+            .eq("user_id", profile.id).gt("start_at", new Date(now).toISOString()).not("provider_event_id", "is", null);
+          for (const b of moreBookings ?? []) ownEvents.add(b.provider_event_id);
+          const events = await upcomingEvents(profile.id, from, to);
+          const seen = new Set<string>();
+          for (const ev of events) {
+            if (ownEvents.has(ev.id)) continue;
+            const key = `${ev.title}|${ev.start}`; // same meeting in two calendars → one reminder
+            if (seen.has(key)) continue;
+            seen.add(key);
+            for (const ch of evChannels) for (const off of prefs[ch]) {
+              if (!due(ev.start, off)) continue;
+              const { account_id, ...snap } = ev;
+              rows.push({
+                user_id: profile.id, booking_id: null, recipient: "host", channel: ch, kind: "event_reminder", offset_min: off,
+                event: snap,
+                send_at: new Date(ev.start - off * 60000).toISOString(),
+                dedupe_key: `e:${account_id}:${ev.id}:${ev.start}:${ch}:${off}`,
+              });
+            }
+          }
+        }
+      }
+      if (rows.length) {
+        await db.from("notification_outbox").upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true });
+        queued += rows.length;
+      }
+    } catch (e) {
+      console.error("reminder scan", profile.id, e);
+    }
+  }
+  return queued;
+}
+
 route("POST", "/cron/reminders", async (req) => {
   const { data: secret } = await admin().rpc("read_cron_secret");
   if (!secret || req.headers.get("x-cron-secret") !== secret) throw new HttpError(401, "Unauthorised");
   const { data: on } = await admin().from("app_settings").select("value").eq("key", "reminders_enabled").maybeSingle();
   if (on?.value === false) return json({ paused: true });
   // stale oauth states
-  await admin().from("oauth_states").delete().lt("created_at", new Date(Date.now() - 3600000).toISOString());
-  await admin().from("busy_cache").delete().lt("fetched_at", new Date(Date.now() - 86400000).toISOString());
-  return json(await processOutbox());
+  const minute = new Date().getUTCMinutes();
+  if (minute % 15 === 0) {
+    await admin().from("oauth_states").delete().lt("created_at", new Date(Date.now() - 3600000).toISOString());
+    await admin().from("busy_cache").delete().lt("fetched_at", new Date(Date.now() - 86400000).toISOString());
+    await admin().from("event_cache").delete().lt("fetched_at", new Date(Date.now() - 3600000).toISOString());
+    await admin().from("notification_outbox").update({ event: null })
+      .not("event", "is", null).lt("send_at", new Date(Date.now() - 86400000).toISOString());
+  }
+  const queued = await scanReminders();
+  return json({ queued, ...(await processOutbox()) });
 });
 
 // ===================================================================================

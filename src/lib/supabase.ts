@@ -9,6 +9,13 @@ export const supabase = createClient(url, key, {
 
 export type Plan = "trial" | "basic" | "premium" | "inactive";
 
+export interface ReminderPrefs {
+  scope: "bookings" | "all";
+  email: number[];
+  whatsapp: number[];
+  sms: number[];
+}
+
 export interface Profile {
   id: string;
   handle: string;
@@ -18,6 +25,7 @@ export interface Profile {
   phone_e164: string | null;
   phone_verified: boolean;
   reminder_channels: string[];
+  reminder_prefs: ReminderPrefs | null;
   plan: Plan;
   trial_ends_at: string;
   onboarded: boolean;
