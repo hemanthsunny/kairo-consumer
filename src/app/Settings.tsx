@@ -130,8 +130,8 @@ export default function Settings() {
           <div className="list">
             {[
               ["email", "Email", "Included"],
-              ["whatsapp", "WhatsApp", premiumish ? "Premium · 150 a month" : "Premium"],
-              ["sms", "SMS", premiumish ? "Premium · 30 a month" : "Premium"],
+              ["whatsapp", "WhatsApp", premiumish ? "Premium · 300 a month" : "Premium"],
+              ["sms", "SMS", premiumish ? "Premium · 50 a month" : "Premium"],
             ].map(([key, label, note]) => (
               <div className="list-item" key={key}>
                 <label className="row grow" style={{ gap: 10 }}>
@@ -162,7 +162,7 @@ export default function Settings() {
         ) : (
           <div className="card flat stack plan featured" style={{ gap: 10 }}>
             <div className="spread"><h3>Premium</h3><span className="badge accent">£9 / month</span></div>
-            <p className="small muted">Everything you have now, plus WhatsApp reminders (150 a month), SMS reminders (30 a month), WhatsApp reminders for your guests and priority support.</p>
+            <p className="small muted">Unlimited calendars and booking links, WhatsApp reminders (300 a month), SMS reminders (50 a month), WhatsApp reminders for your guests and priority support.</p>
             <div className="row wrap">
               <button className="btn primary" onClick={() => checkout("premium", "month")} disabled={!!billingBusy}>Go Premium · £9 / month</button>
               <button className="btn" onClick={() => checkout("premium", "year")} disabled={!!billingBusy}>£90 / year (2 months free)</button>

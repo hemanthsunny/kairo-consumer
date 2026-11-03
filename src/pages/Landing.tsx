@@ -123,15 +123,15 @@ export default function Landing() {
 }
 
 const PRICING_ROWS: [string, string | boolean, string | boolean][] = [
-  ["Calendars", "Unlimited", "Unlimited"],
-  ["Booking links", "Unlimited", "Unlimited"],
+  ["Calendars", "Up to 3", "Unlimited"],
+  ["Booking links", "1", "Unlimited"],
   ["Combined calendar view", true, true],
   ["Meet / Teams links", true, true],
   ["Email reminders", true, true],
   ["Share free times", true, true],
   ["Limits & buffers", true, true],
-  ["WhatsApp reminders", false, "150 / month"],
-  ["SMS reminders", false, "30 / month"],
+  ["WhatsApp reminders", false, "300 / month"],
+  ["SMS reminders", false, "50 / month"],
   ["Guest WhatsApp reminders", false, true],
   ["Priority support", false, true],
 ];

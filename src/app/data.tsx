@@ -74,6 +74,11 @@ export function useToast() {
   return { msg, toast: setMsg };
 }
 
+/** Turn database rule errors (e.g. free-plan limits) into a readable sentence. */
+export function friendlyError(msg: string) {
+  return msg.replace(/^FREE_LIMIT_[A-Z]+:\s*/, "");
+}
+
 export async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text);

@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { GoogleLogo, MicrosoftLogo } from "../components/Icons";
 import { ConnectButtons, Switch } from "./shared";
+import { Link, useSearchParams } from "react-router-dom";
 import { AccountLite, useApp } from "./data";
 
 const LABELS = ["Work", "Personal", "Client", "Jobs", "Side project", "Family"];
 const COLORS = ["#6366f1", "#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#ef4444", "#14b8a6"];
 
 export default function Calendars() {
-  const { accounts, calendars, reload, toast } = useApp();
+  const { accounts, calendars, plan, reload, toast } = useApp();
+  const atLimit = plan !== "premium" && accounts.length >= 3;
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
@@ -50,9 +51,17 @@ export default function Calendars() {
       </div>
 
       <div className="card stack">
-        <h2>Add another email account</h2>
-        <p className="small muted">Got a client inbox, a company account and a personal one? Add them all. You can connect several accounts from the same provider.</p>
-        <ConnectButtons compact />
+        <div className="spread"><h2>Add another email account</h2>{plan !== "premium" && <span className="badge">{accounts.length} of 3 on Free</span>}</div>
+        {atLimit ? (
+          <div className="alert info">
+            You've connected 3 calendars, the most on the free plan. <Link to="/app/settings#plan">Go Premium</Link> to connect as many as you like.
+          </div>
+        ) : (
+          <>
+            <p className="small muted">Got a client inbox, a company account and a personal one? Add them all. You can connect several accounts from the same provider.</p>
+            <ConnectButtons compact />
+          </>
+        )}
       </div>
 
       <p className="small faint">

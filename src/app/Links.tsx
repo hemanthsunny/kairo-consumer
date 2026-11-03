@@ -4,7 +4,7 @@ import { supabase, LinkRow, WeeklyHours } from "../lib/supabase";
 import { durationLabel } from "../lib/time";
 import { IconCopy, IconPlus } from "../components/Icons";
 import { linkUrl, Switch } from "./shared";
-import { copyText, useApp } from "./data";
+import { copyText, friendlyError, useApp } from "./data";
 
 const DAYS: [string, string][] = [["mon", "Monday"], ["tue", "Tuesday"], ["wed", "Wednesday"], ["thu", "Thursday"], ["fri", "Friday"], ["sat", "Saturday"], ["sun", "Sunday"]];
 const DEFAULT_HOURS: WeeklyHours = { mon: [["09:00", "17:00"]], tue: [["09:00", "17:00"]], wed: [["09:00", "17:00"]], thu: [["09:00", "17:00"]], fri: [["09:00", "17:00"]], sat: [], sun: [] };
@@ -22,13 +22,14 @@ function blank(writeCal: string | null): Draft {
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
 export default function Links() {
-  const { profile, links, calendars, accounts, reload, toast } = useApp();
+  const { profile, links, calendars, accounts, plan, reload, toast } = useApp();
+  const freeLimitReached = plan !== "premium" && links.filter((l) => l.is_active).length >= 1;
   const [editing, setEditing] = useState<Draft | null>(null);
   const defaultWrite = calendars.find((c) => c.can_write)?.id ?? null;
 
   async function toggle(l: LinkRow, v: boolean) {
     const { error } = await supabase.from("links").update({ is_active: v }).eq("id", l.id);
-    if (error) toast(error.message);
+    if (error) toast(friendlyError(error.message));
     else {
       toast(v ? "Link is live" : "Link turned off");
       reload();
@@ -42,12 +43,15 @@ export default function Links() {
           <h1>Links</h1>
           <p className="muted">One link per purpose. Each one checks every calendar and books into the one you choose.</p>
         </div>
-        <button className="btn primary" onClick={() => setEditing(blank(defaultWrite))} disabled={!accounts.length}>
+        <button className="btn primary" onClick={() => freeLimitReached ? toast("The free plan includes 1 active booking link. Go Premium for unlimited links.") : setEditing(blank(defaultWrite))} disabled={!accounts.length}>
           <IconPlus width={16} /> New link
         </button>
       </div>
       <HandleEditor />
       {!accounts.length && <div className="alert info">Connect a calendar first, then create links.</div>}
+      {freeLimitReached && (
+        <div className="alert info">The free plan includes 1 active booking link. <Link to="/app/settings#plan">Go Premium</Link> for unlimited links, one for each purpose.</div>
+      )}
 
       <div className="stack">
         {links.map((l) => {
@@ -118,7 +122,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
       : await supabase.from("links").insert(row);
     setSaving(false);
     if (res.error) {
-      setError(res.error.code === "23505" ? "You already have a link with that address. Choose another." : res.error.message);
+      setError(res.error.code === "23505" ? "You already have a link with that address. Choose another." : friendlyError(res.error.message));
       return;
     }
     toast(draft.id ? "Link saved" : "Link created");

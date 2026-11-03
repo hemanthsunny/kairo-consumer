@@ -173,7 +173,8 @@ route("GET", "/oauth/:provider/callback", async (_req, p, url) => {
     return back(returnTo, { connected: t.email });
   } catch (e) {
     console.error("oauth callback", e);
-    return back(returnTo, { error: e instanceof Error ? e.message.slice(0, 200) : "Connection failed" });
+    const msg = (e as { message?: string })?.message ?? "Connection failed";
+    return back(returnTo, { error: msg.replace(/^FREE_LIMIT_[A-Z]+:\s*/, "").slice(0, 200) });
   }
 });
 

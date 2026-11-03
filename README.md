@@ -6,7 +6,7 @@ Consumer spin-off of Kairo HR. Pilot domain: **https://link.kairohr.co**
 - **Web app**: React + TypeScript + Vite, hosted on Netlify (`/` landing, `/app` dashboard, `/:handle/:slug` booking pages)
 - **API**: one Supabase Edge Function, `api` (`supabase/functions/api`), reached via `/api/*`, which Netlify proxies to Supabase so OAuth redirects stay on our domain
 - **Database**: Supabase project `Kairo-Consumer` (`aqzbnqbuxvbgwtendieh`, eu-west-1). Schema in `supabase/migrations`
-- **Billing**: Stripe Checkout + Customer Portal. Free plan (everything except WhatsApp/SMS; stored as `basic`), Premium £9/mo or £90/yr adds WhatsApp + SMS
+- **Billing**: Stripe Checkout + Customer Portal. Free plan (up to 3 calendars, 1 active link; stored as `basic`, enforced by DB triggers), Premium £9/mo or £90/yr: unlimited + 300 WhatsApp / 50 SMS a month
 
 ## How it works
 

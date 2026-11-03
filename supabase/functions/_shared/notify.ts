@@ -42,7 +42,7 @@ export async function addonAllowed(profile: Profile, channel: "whatsapp" | "sms"
   if (plan !== "premium" && plan !== "trial") return false;
   const caps = plan === "trial"
     ? { whatsapp: 20, sms: 5 }
-    : await getSetting<{ whatsapp: number; sms: number }>("premium_monthly_caps", { whatsapp: 150, sms: 30 });
+    : await getSetting<{ whatsapp: number; sms: number }>("premium_monthly_caps", { whatsapp: 300, sms: 50 });
   const monthStart = new Date();
   monthStart.setUTCDate(1);
   monthStart.setUTCHours(0, 0, 0, 0);
