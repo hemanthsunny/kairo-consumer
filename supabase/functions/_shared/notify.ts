@@ -176,6 +176,28 @@ export async function sendEmail(to: string, subject: string, html: string, text:
 }
 
 export async function sendWhatsApp(toE164: string, params: string[]) {
+  // Preferred: WhatsApp through Twilio (same account as SMS), using an approved Content Template.
+  if (env.twilioSid && env.twilioToken && env.twilioWaFrom && env.twilioWaContentSid) {
+    const from = env.twilioWaFrom.startsWith("whatsapp:") ? env.twilioWaFrom : `whatsapp:${env.twilioWaFrom}`;
+    const vars = Object.fromEntries(params.map((p, i) => [String(i + 1), p.slice(0, 200)]));
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${env.twilioSid}/Messages.json`, {
+      method: "POST",
+      headers: {
+        authorization: "Basic " + btoa(`${env.twilioSid}:${env.twilioToken}`),
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        To: `whatsapp:${toE164}`,
+        From: from,
+        ContentSid: env.twilioWaContentSid,
+        ContentVariables: JSON.stringify(vars),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`WhatsApp failed: ${data.message ?? res.status}`);
+    return data.sid as string;
+  }
+  // Fallback: Meta WhatsApp Cloud API directly.
   if (!env.waToken || !env.waPhoneNumberId) throw new Error("WhatsApp is not configured");
   const res = await fetch(`https://graph.facebook.com/v21.0/${env.waPhoneNumberId}/messages`, {
     method: "POST",

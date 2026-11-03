@@ -41,6 +41,9 @@ export const env = {
   get twilioSid() { return opt("TWILIO_ACCOUNT_SID"); },
   get twilioToken() { return opt("TWILIO_AUTH_TOKEN"); },
   get twilioFrom() { return opt("TWILIO_FROM"); },
+  /** WhatsApp via Twilio: sender (e.g. whatsapp:+447401101442) and approved Content Template SID (HX...) */
+  get twilioWaFrom() { return opt("TWILIO_WHATSAPP_FROM"); },
+  get twilioWaContentSid() { return opt("TWILIO_WHATSAPP_CONTENT_SID"); },
 };
 
 /** OAuth redirect URIs go through the site (Netlify proxies /api/* to this function). */

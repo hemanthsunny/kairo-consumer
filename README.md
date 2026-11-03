@@ -84,6 +84,8 @@ STRIPE_SECRET_KEY=sk_test_... node scripts/stripe-setup.mjs   # prints the 4 pri
 - Turn on the Customer Portal (cancel, switch plan, invoices)
 
 ### 8. WhatsApp and SMS add-ons (when ready)
+**Twilio (preferred, one account for both):** set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM` (+447… number), `TWILIO_WHATSAPP_FROM` (`whatsapp:+447…`) and `TWILIO_WHATSAPP_CONTENT_SID` (HX… of the approved Utility template with variables {{1}} headline, {{2}} time, {{3}} join link). Meta-direct variables below are only a fallback.
+
 - **WhatsApp (Meta Cloud API):** create a *utility* template called `meeting_reminder` (en_GB) with body:
   ```
   {{1}}
