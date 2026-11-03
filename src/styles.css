@@ -286,3 +286,7 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
   .plan-price small { display: block; font-size: 11px; }
   .pricing tfoot .btn { height: 36px; padding: 0 6px; font-size: 12px; white-space: normal; line-height: 1.2; }
 }
+
+.pricing-wrap { margin-left: auto; margin-right: auto; max-width: 760px; }
+.pricing tbody th { white-space: nowrap; }
+@media (max-width: 600px) { .pricing tbody th { white-space: normal; } }

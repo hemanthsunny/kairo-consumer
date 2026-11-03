@@ -104,7 +104,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <section className="section" id="pricing">
+      <section className="section center" id="pricing">
         <h2>Simple pricing</h2>
         <p className="muted" style={{ marginTop: 8 }}>Free for everyday use. Upgrade when you want reminders on WhatsApp and SMS.</p>
         <PricingTable />
@@ -123,16 +123,16 @@ export default function Landing() {
 }
 
 const PRICING_ROWS: [string, string | boolean, string | boolean][] = [
-  ["Connect every calendar (Google & Microsoft)", "Unlimited", "Unlimited"],
+  ["Calendars", "Unlimited", "Unlimited"],
   ["Booking links", "Unlimited", "Unlimited"],
-  ["Combined calendar with event details & join links", true, true],
-  ["Google Meet / Teams links added automatically", true, true],
-  ["Email confirmations and reminders", true, true],
-  ["Share your free times in one tap", true, true],
-  ["Daily booking limits and buffers", true, true],
-  ["WhatsApp reminders", false, "150 a month"],
-  ["SMS reminders", false, "30 a month"],
-  ["WhatsApp reminders for your guests", false, true],
+  ["Combined calendar view", true, true],
+  ["Meet / Teams links", true, true],
+  ["Email reminders", true, true],
+  ["Share free times", true, true],
+  ["Limits & buffers", true, true],
+  ["WhatsApp reminders", false, "150 / month"],
+  ["SMS reminders", false, "30 / month"],
+  ["Guest WhatsApp reminders", false, true],
   ["Priority support", false, true],
 ];
 
