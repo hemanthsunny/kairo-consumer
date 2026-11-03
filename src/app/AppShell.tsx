@@ -30,7 +30,6 @@ export default function AppShell() {
   if (!data) return <Loading />;
 
   const plan = effectivePlan(data.profile);
-  const trialDays = Math.max(0, Math.ceil((new Date(data.profile.trial_ends_at).getTime() - Date.now()) / 86400000));
 
   return (
     <AppCtx.Provider value={{ ...data, plan, reload, toast }}>
@@ -43,12 +42,11 @@ export default function AppShell() {
             ))}
           </nav>
           <div className="side-foot stack" style={{ gap: 8 }}>
-            {plan === "trial" && (
-              <Link to="/app/settings#plan" className="badge accent" style={{ alignSelf: "flex-start" }}>
-                Trial · {trialDays} day{trialDays === 1 ? "" : "s"} left
-              </Link>
+            {plan === "premium" ? (
+              <span className="badge green" style={{ alignSelf: "flex-start" }}>Premium</span>
+            ) : (
+              <Link to="/app/settings#plan" className="badge accent" style={{ alignSelf: "flex-start" }}>Free · Go Premium</Link>
             )}
-            {plan === "inactive" && <Link to="/app/settings#plan" className="badge red">Trial ended · choose a plan</Link>}
             <p className="small truncate muted" title={data.profile.email ?? ""}>{data.profile.email}</p>
             <button className="btn ghost sm" style={{ justifyContent: "flex-start", padding: 0 }} onClick={() => supabase.auth.signOut()}>
               Sign out
@@ -56,11 +54,6 @@ export default function AppShell() {
           </div>
         </aside>
         <main className="main">
-          {plan === "inactive" && (
-            <div className="alert warn" style={{ marginBottom: 20 }}>
-              Your trial has ended, so your booking pages are paused. <Link to="/app/settings#plan">Choose a plan</Link> to switch them back on.
-            </div>
-          )}
           <Outlet />
         </main>
         <nav className="mobile-bar" aria-label="App">

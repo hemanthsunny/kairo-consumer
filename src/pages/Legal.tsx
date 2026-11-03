@@ -39,7 +39,7 @@ function Terms() {
       <h2>Your account</h2>
       <p>Only connect calendars you are allowed to use. You are responsible for the meetings booked through your links and for keeping your sign-in secure.</p>
       <h2>Plans and billing</h2>
-      <p>New accounts get a 3-day free trial. After that, Basic is £3 a month (or £30 a year) and Premium is £9 a month (or £90 a year), including VAT where applicable. Premium includes up to 150 WhatsApp and 30 SMS reminders per month. You can cancel any time from Settings; your plan runs to the end of the period you've paid for.</p>
+      <p>Kairo Link is free to use. Premium costs £9 a month (or £90 a year), including VAT where applicable, and adds WhatsApp reminders (up to 150 a month) and SMS reminders (up to 30 a month). You can cancel Premium any time from Settings; it runs to the end of the period you’ve paid for and your account then returns to the free plan.</p>
       <h2>Fair use</h2>
       <p>Don't use Kairo Link to send spam or to book people who haven't asked to meet you. We may suspend accounts that do.</p>
       <h2>Availability</h2>

@@ -15,10 +15,11 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (ready && session) nav("/app", { replace: true });
-  }, [ready, session, nav]);
+    if (ready && session) nav(params.get("plan") === "premium" ? "/app/settings#plan" : "/app", { replace: true });
+  }, [ready, session, nav, params]);
 
-  const redirectTo = `${window.location.origin}/app`;
+  const wantsPremium = params.get("plan") === "premium";
+  const redirectTo = `${window.location.origin}${wantsPremium ? "/app/settings#plan" : "/app"}`;
 
   async function oauth(provider: "google" | "azure") {
     setBusy(provider);
@@ -52,8 +53,8 @@ export default function Login() {
       <div className="card stack-lg">
         <div className="stack" style={{ gap: 6 }}>
           <Link to="/" className="brand" style={{ padding: 0 }}><img src="/favicon.svg" alt="" />Kairo Link</Link>
-          <h1 style={{ fontSize: 22 }}>{signup ? "Start your free trial" : "Welcome back"}</h1>
-          <p className="muted small">{signup ? "3 days, everything included. No card needed." : "Sign in to manage your calendars and links."}</p>
+          <h1 style={{ fontSize: 22 }}>{signup ? "Create your free account" : "Welcome back"}</h1>
+          <p className="muted small">{signup ? "Free forever. Upgrade any time for WhatsApp and SMS reminders." : "Sign in to manage your calendars and links."}</p>
         </div>
         {error && <div className="alert error" role="alert">{error}</div>}
         {sent ? (

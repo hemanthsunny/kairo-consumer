@@ -15,7 +15,6 @@ async function call(path, params) {
 }
 
 const plans = [
-  { key: "BASIC", name: "Kairo Link Basic", monthly: 300, yearly: 3000 },
   { key: "PREMIUM", name: "Kairo Link Premium", monthly: 900, yearly: 9000 },
 ];
 for (const p of plans) {

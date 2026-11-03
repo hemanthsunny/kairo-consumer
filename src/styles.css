@@ -258,3 +258,31 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
 .chip { border: 0; color: #fff; font: inherit; font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 5px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-modal { max-width: 520px; margin-top: 8vh; gap: 14px; }
 .event-desc { white-space: pre-wrap; background: var(--surface-2); border-radius: 10px; padding: 12px; max-height: 260px; overflow-y: auto; line-height: 1.55; }
+
+/* Pricing table */
+.pricing-wrap { margin-top: 28px; max-width: 860px; overflow-x: auto; }
+.pricing { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow); font-size: 14px; }
+.pricing th, .pricing td { padding: 14px 18px; text-align: center; border-bottom: 1px solid var(--border); }
+.pricing tbody th { text-align: left; font-weight: 500; color: var(--text); }
+.pricing thead th { vertical-align: bottom; padding-top: 22px; padding-bottom: 18px; }
+.pricing thead th, .pricing tfoot td { width: 28%; }
+.pricing .featured { background: var(--accent-50); }
+.pricing thead th.featured { box-shadow: inset 0 3px 0 var(--accent); }
+.pricing tfoot td, .pricing tfoot th { border-bottom: 0; padding-top: 18px; padding-bottom: 20px; }
+.plan-name { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.plan-price { display: block; font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-top: 6px; }
+.plan-price small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.plan-note { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.tick { color: var(--green); font-weight: 700; font-size: 16px; }
+@media (max-width: 860px) { .pricing th, .pricing td { padding: 12px 10px; } .pricing tbody th { font-size: 13px; } .plan-price { font-size: 24px; } }
+@media (max-width: 600px) {
+  .pricing { table-layout: fixed; font-size: 13px; }
+  .pricing thead th:first-child, .pricing tbody th, .pricing tfoot th { width: 40%; }
+  .pricing thead th, .pricing tfoot td { width: 30%; }
+  .pricing th, .pricing td { padding: 10px 6px; }
+  .pricing tbody th { padding-left: 12px; }
+  .plan-name .badge { display: none; }
+  .plan-price { font-size: 22px; }
+  .plan-price small { display: block; font-size: 11px; }
+  .pricing tfoot .btn { height: 36px; padding: 0 6px; font-size: 12px; white-space: normal; line-height: 1.2; }
+}

@@ -44,6 +44,7 @@ export interface Profile {
 
 /** Plan the user is actually entitled to right now. Trial = premium features with small caps. */
 export function effectivePlan(p: Pick<Profile, "plan" | "trial_ends_at">): "trial" | "basic" | "premium" | "inactive" {
-  if (p.plan === "trial") return new Date(p.trial_ends_at).getTime() > Date.now() ? "trial" : "inactive";
-  return p.plan;
+  if (p.plan === "premium") return "premium";
+  if (p.plan === "trial" && new Date(p.trial_ends_at).getTime() > Date.now()) return "trial";
+  return "basic"; // "basic" is the Free plan
 }

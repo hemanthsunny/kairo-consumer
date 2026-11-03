@@ -86,7 +86,7 @@ export default function Links() {
 }
 
 function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
-  const { profile, plan, calendars, accounts, reload, toast } = useApp();
+  const { profile, calendars, accounts, reload, toast } = useApp();
   const [d, setD] = useState<Draft>(draft);
   const [slugTouched, setSlugTouched] = useState(!!draft.id);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -264,8 +264,8 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
                 {[15, 30, 60].map((v) => <option key={v} value={v}>{v} min</option>)}
               </select>
             </label>
-            <label className="field">Max bookings per day {plan === "basic" && <span className="hint">(Premium)</span>}
-              <select value={d.daily_limit ?? ""} disabled={plan === "basic"} onChange={(e) => set("daily_limit", e.target.value ? Number(e.target.value) : null)}>
+            <label className="field">Max bookings per day
+              <select value={d.daily_limit ?? ""} onChange={(e) => set("daily_limit", e.target.value ? Number(e.target.value) : null)}>
                 <option value="">No limit</option>
                 {[1, 2, 3, 4, 5, 6, 8, 10].map((v) => <option key={v} value={v}>{v}</option>)}
               </select>

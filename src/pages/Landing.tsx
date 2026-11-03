@@ -14,7 +14,7 @@ function Nav() {
         ) : (
           <>
             <Link to="/login" className="btn ghost sm">Sign in</Link>
-            <Link to="/login?mode=signup" className="btn primary sm">Start free</Link>
+            <Link to="/login?mode=signup" className="btn primary sm">Get started free</Link>
           </>
         )}
       </div>
@@ -75,10 +75,10 @@ export default function Landing() {
             Reminders land on WhatsApp or SMS so nothing slips.
           </p>
           <div className="row wrap" style={{ marginTop: 28 }}>
-            <Link to="/login?mode=signup" className="btn primary lg">Start 3-day free trial</Link>
+            <Link to="/login?mode=signup" className="btn primary lg">Get started free</Link>
             <a href="#how" className="btn lg">See how it works</a>
           </div>
-          <p className="small faint" style={{ marginTop: 12 }}>No card needed. Works with Google and Microsoft 365 / Outlook.</p>
+          <p className="small faint" style={{ marginTop: 12 }}>Free forever, no card needed. Works with Google and Microsoft 365 / Outlook.</p>
         </div>
         <HeroMock />
       </header>
@@ -90,7 +90,7 @@ export default function Landing() {
           {[
             { icon: <IconLayers />, t: "Connect every calendar", d: "Add each Google or Microsoft account you use: client, company, personal. We check all of them before offering a time." },
             { icon: <IconLink />, t: "One link per purpose", d: "A link for client calls, one for job interviews, one for friends. Each books into the calendar you choose, with a video link." },
-            { icon: <IconBell />, t: "Reminders where you look", d: "Email reminders included. Add WhatsApp or SMS so you and your guests never miss a call." },
+            { icon: <IconBell />, t: "Reminders where you look", d: "Email reminders are free. Add WhatsApp and SMS with Premium so you and your guests never miss a call." },
             { icon: <IconShield />, t: "Every meeting, one place", d: "See all your events from every account in one week, with one-click join links. Details are shown only to you and never stored, and any calendar can be set to busy-only." },
             { icon: <IconClock />, t: "Sensible rules built in", d: "No bookings in the past, minimum notice, buffers between calls, and nothing more than a month ahead unless you say so." },
             { icon: <IconCalendar />, t: "Share times in one tap", d: "Copy your next free times as text and paste them into any email, Slack or WhatsApp chat." },
@@ -106,36 +106,8 @@ export default function Landing() {
 
       <section className="section" id="pricing">
         <h2>Simple pricing</h2>
-        <p className="muted" style={{ marginTop: 8 }}>3-day free trial with everything included. Cancel any time.</p>
-        <div className="grid-2" style={{ marginTop: 28, maxWidth: 820 }}>
-          <div className="card plan">
-            <h3>Basic</h3>
-            <p className="price" style={{ marginTop: 8 }}>£3<small> / month</small></p>
-            <p className="small muted">or £30 a year</p>
-            <ul className="ticks">
-              <li>Unlimited calendars across all your emails</li>
-              <li>Unlimited booking links</li>
-              <li>Google Meet / Teams links added automatically</li>
-              <li>Email confirmations and reminders</li>
-              <li>Share-your-times in one tap</li>
-            </ul>
-            <Link to="/login?mode=signup" className="btn block" style={{ marginTop: 20 }}>Start free trial</Link>
-          </div>
-          <div className="card plan featured">
-            <div className="spread"><h3>Premium</h3><span className="badge accent">Most useful</span></div>
-            <p className="price" style={{ marginTop: 8 }}>£9<small> / month</small></p>
-            <p className="small muted">or £90 a year</p>
-            <ul className="ticks">
-              <li>Everything in Basic</li>
-              <li>WhatsApp reminders (150 a month)</li>
-              <li>SMS reminders (30 a month)</li>
-              <li>Reminders for your guests on WhatsApp</li>
-              <li>Daily booking limits per link</li>
-              <li>Priority support</li>
-            </ul>
-            <Link to="/login?mode=signup" className="btn primary block" style={{ marginTop: 20 }}>Start free trial</Link>
-          </div>
-        </div>
+        <p className="muted" style={{ marginTop: 8 }}>Free for everyday use. Upgrade when you want reminders on WhatsApp and SMS.</p>
+        <PricingTable />
       </section>
 
       <footer className="footer">
@@ -146,6 +118,66 @@ export default function Landing() {
         </div>
         <p style={{ marginTop: 10 }}>© {new Date().getFullYear()} Sextans Ltd · Kairo Link</p>
       </footer>
+    </div>
+  );
+}
+
+const PRICING_ROWS: [string, string | boolean, string | boolean][] = [
+  ["Connect every calendar (Google & Microsoft)", "Unlimited", "Unlimited"],
+  ["Booking links", "Unlimited", "Unlimited"],
+  ["Combined calendar with event details & join links", true, true],
+  ["Google Meet / Teams links added automatically", true, true],
+  ["Email confirmations and reminders", true, true],
+  ["Share your free times in one tap", true, true],
+  ["Daily booking limits and buffers", true, true],
+  ["WhatsApp reminders", false, "150 a month"],
+  ["SMS reminders", false, "30 a month"],
+  ["WhatsApp reminders for your guests", false, true],
+  ["Priority support", false, true],
+];
+
+function Cell({ v }: { v: string | boolean }) {
+  if (v === true) return <span className="tick" aria-label="Included">✓</span>;
+  if (v === false) return <span className="faint" aria-label="Not included">—</span>;
+  return <span>{v}</span>;
+}
+
+export function PricingTable() {
+  return (
+    <div className="pricing-wrap">
+      <table className="pricing">
+        <thead>
+          <tr>
+            <th scope="col"><span className="sr-only">Feature</span></th>
+            <th scope="col">
+              <span className="plan-name">Free</span>
+              <span className="plan-price">£0</span>
+              <span className="plan-note">Free forever</span>
+            </th>
+            <th scope="col" className="featured">
+              <span className="plan-name">Premium <span className="badge accent">Most useful</span></span>
+              <span className="plan-price">£9<small> / month</small></span>
+              <span className="plan-note">or £90 a year</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {PRICING_ROWS.map(([label, free, prem]) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              <td><Cell v={free} /></td>
+              <td className="featured"><Cell v={prem} /></td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" />
+            <td><Link to="/login?mode=signup" className="btn block">Get started free</Link></td>
+            <td className="featured"><Link to="/login?mode=signup&plan=premium" className="btn primary block">Go Premium</Link></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }

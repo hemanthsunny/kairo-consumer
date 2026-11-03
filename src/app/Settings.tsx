@@ -18,6 +18,7 @@ export default function Settings() {
   const [billingBusy, setBillingBusy] = useState<string | null>(null);
   const zones = useMemo(allTimeZones, []);
   const premiumish = plan === "premium" || plan === "trial";
+  const isPremium = plan === "premium";
 
   useEffect(() => {
     const b = params.get("billing");
@@ -88,7 +89,6 @@ export default function Settings() {
     }
   }
 
-  const trialDays = Math.max(0, Math.ceil((new Date(profile.trial_ends_at).getTime() - Date.now()) / 86400000));
 
   return (
     <div className="stack-lg" style={{ maxWidth: 760 }}>
@@ -144,7 +144,7 @@ export default function Settings() {
               </div>
             ))}
           </div>
-          {plan === "trial" && <p className="small faint">Your trial includes 20 WhatsApp and 5 SMS reminders so you can try them.</p>}
+          
         </div>
 
         <div><button className="btn primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></div>
@@ -153,28 +153,19 @@ export default function Settings() {
       <div className="card stack" id="plan">
         <div className="spread">
           <h2>Plan</h2>
-          <span className={`badge ${plan === "inactive" ? "red" : plan === "trial" ? "accent" : "green"}`}>
-            {plan === "trial" ? `Free trial · ${trialDays} day${trialDays === 1 ? "" : "s"} left` : plan === "inactive" ? "No active plan" : plan === "premium" ? "Premium" : "Basic"}
-          </span>
+          <span className={`badge ${isPremium ? "green" : "accent"}`}>{isPremium ? "Premium" : "Free"}</span>
         </div>
-        {plan === "basic" || plan === "premium" ? (
+        {isPremium ? (
           <div className="row wrap">
             <button className="btn" onClick={portal} disabled={!!billingBusy}>Manage billing, invoices or cancel</button>
-            {plan === "basic" && <button className="btn primary" onClick={portal} disabled={!!billingBusy}>Upgrade to Premium</button>}
           </div>
         ) : (
-          <div className="grid-2" style={{ gap: 14 }}>
-            <div className="card flat stack" style={{ gap: 8 }}>
-              <h3>Basic</h3>
-              <p className="small muted">All calendars, unlimited links, email reminders.</p>
-              <button className="btn" onClick={() => checkout("basic", "month")} disabled={!!billingBusy}>£3 / month</button>
-              <button className="btn ghost sm" onClick={() => checkout("basic", "year")} disabled={!!billingBusy}>or £30 / year</button>
-            </div>
-            <div className="card flat stack plan featured" style={{ gap: 8 }}>
-              <h3>Premium</h3>
-              <p className="small muted">Everything in Basic plus WhatsApp and SMS reminders, daily limits.</p>
-              <button className="btn primary" onClick={() => checkout("premium", "month")} disabled={!!billingBusy}>£9 / month</button>
-              <button className="btn ghost sm" onClick={() => checkout("premium", "year")} disabled={!!billingBusy}>or £90 / year</button>
+          <div className="card flat stack plan featured" style={{ gap: 10 }}>
+            <div className="spread"><h3>Premium</h3><span className="badge accent">£9 / month</span></div>
+            <p className="small muted">Everything you have now, plus WhatsApp reminders (150 a month), SMS reminders (30 a month), WhatsApp reminders for your guests and priority support.</p>
+            <div className="row wrap">
+              <button className="btn primary" onClick={() => checkout("premium", "month")} disabled={!!billingBusy}>Go Premium · £9 / month</button>
+              <button className="btn" onClick={() => checkout("premium", "year")} disabled={!!billingBusy}>£90 / year (2 months free)</button>
             </div>
           </div>
         )}

@@ -22,8 +22,9 @@ export function useApp(): AppData {
 }
 
 export function effectivePlan(p: Profile): Plan {
-  if (p.plan === "trial") return new Date(p.trial_ends_at).getTime() > Date.now() ? "trial" : "inactive";
-  return p.plan;
+  if (p.plan === "premium") return "premium";
+  if (p.plan === "trial" && new Date(p.trial_ends_at).getTime() > Date.now()) return "trial";
+  return "basic"; // "basic" is the Free plan
 }
 
 export function useAppLoader(userId: string | undefined) {

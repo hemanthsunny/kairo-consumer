@@ -728,7 +728,7 @@ async function syncSubscription(subId: string) {
   const { data: prof } = await db.from("profiles").select("plan,trial_ends_at").eq("id", uid).single();
   let plan: string;
   if (active && mapped) plan = mapped.plan;
-  else plan = prof && new Date(prof.trial_ends_at).getTime() > Date.now() ? "trial" : "inactive";
+  else plan = prof && prof.plan === "trial" && new Date(prof.trial_ends_at).getTime() > Date.now() ? "trial" : "basic";
   await db.from("profiles").update({ plan }).eq("id", uid);
 }
 
