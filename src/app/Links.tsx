@@ -77,7 +77,7 @@ export default function Links() {
       <div className="page-head">
         <div>
           <h1>Links</h1>
-          <p className="muted">One link per purpose. Each one checks every calendar and books into the one you choose.</p>
+          <p className="muted">One link per purpose. Each one checks every calendar and books into the one you choose. Add people to a link to book calls with several of you at once.</p>
         </div>
         <button className="btn primary" onClick={() => freeLimitReached ? toast("The free plan includes 1 active booking link. Go Premium for unlimited links.") : setEditing(blank(defaultWrite))} disabled={!accounts.length}>
           <IconPlus width={16} /> New link
@@ -120,6 +120,9 @@ export default function Links() {
                   <Switch checked={l.is_active} onChange={(v) => toggle(l, v)} label={`Turn ${l.title} on or off`} />
                   <button className="btn sm" onClick={async () => { if (await copyText(linkUrl(profile, l))) toast("Link copied"); }}><IconCopy width={15} />Copy</button>
                   <button className="btn sm" onClick={() => setEditing({ ...l })}>Edit</button>
+                  {!memberRows.some((m) => m.link_id === l.id && m.status !== "declined") && (
+                    <button className="btn ghost sm" onClick={() => setEditing({ ...l, _focusPeople: true } as Draft)}>+ Add people</button>
+                  )}
                   {l.expires_at && (l.is_active
                     ? <button className="btn ghost sm" onClick={() => closeNow(l)}>Close</button>
                     : <button className="btn ghost sm" onClick={() => extend(l)}>Reopen 7 days</button>)}
@@ -179,6 +182,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
       is_active: closeIn !== "keep" && expires_at ? true : d.is_active,
     };
     delete (row as { id?: string }).id;
+    delete (row as { _focusPeople?: boolean })._focusPeople;
     const res = draft.id
       ? await supabase.from("links").update(row).eq("id", draft.id).select("id").single()
       : await supabase.from("links").insert(row).select("id").single();
@@ -241,7 +245,8 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         </label>
 
         <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople}
-          onAdded={() => { if (draft.id && !d.expires_at && !closeTouched) setCloseIn("7"); }} />
+          onAdded={() => { if (draft.id && !d.expires_at && !closeTouched) setCloseIn("7"); }}
+          focus={(draft as { _focusPeople?: boolean })._focusPeople} />
 
         <label className="field" style={{ maxWidth: 360 }}>Link closes
           <select value={closeIn} onChange={(e) => { setCloseTouched(true); setCloseIn(e.target.value); }}>
@@ -437,7 +442,7 @@ function HandleEditor() {
 
 type Member = { id: string; email: string; status: "invited" | "active" | "declined"; name: string | null };
 
-function PeopleField({ linkId, pending, setPending, onAdded }: { linkId?: string; pending: string[]; setPending: (v: string[]) => void; onAdded?: () => void }) {
+function PeopleField({ linkId, pending, setPending, onAdded, focus }: { linkId?: string; pending: string[]; setPending: (v: string[]) => void; onAdded?: () => void; focus?: boolean }) {
   const { plan, toast } = useApp();
   const [members, setMembers] = useState<Member[]>([]);
   const [input, setInput] = useState("");
@@ -500,7 +505,7 @@ function PeopleField({ linkId, pending, setPending, onAdded }: { linkId?: string
 
   const shown = members;
   return (
-    <div className="field">
+    <div className="field" ref={(el) => { if (el && focus) setTimeout(() => { el.scrollIntoView({ block: "center" }); el.querySelector("input")?.focus(); }, 50); }}>
       <span>People on this call {!premium && <span className="badge accent" style={{ marginLeft: 6 }}>Premium</span>}</span>
       <div className="card flat stack" style={{ gap: 10, padding: 14 }}>
         <p className="small muted" style={{ margin: 0 }}>
