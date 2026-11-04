@@ -225,7 +225,6 @@ function ConnectedApps() {
   const [apps, setApps] = useState<ConnectedApp[] | null>(null);
   const load = () => api<{ apps: ConnectedApp[] }>("/me/apps").then((r) => setApps(r.apps)).catch(() => setApps([]));
   useEffect(() => { load(); }, []);
-  if (!apps?.length) return null;
 
   async function disconnect(a: ConnectedApp) {
     if (!confirm(`Disconnect ${a.name}? It will stop seeing when you're busy.`)) return;
@@ -242,6 +241,16 @@ function ConnectedApps() {
     <div className="card stack">
       <h2>Connected apps</h2>
       <p className="small muted" style={{ margin: 0 }}>These apps use your combined calendar and get updates as soon as it changes. They only ever see busy times, never event details.</p>
+      {apps === null ? (
+        <p className="small faint" style={{ margin: 0 }}>Loading…</p>
+      ) : apps.length === 0 ? (
+        <div className="card flat stack" style={{ gap: 6 }}>
+          <div style={{ fontWeight: 500 }}>No apps connected yet</div>
+          <p className="small muted" style={{ margin: 0 }}>
+            Use Kairo Link as your one calendar in Kairo HR: in Kairo HR, open your interviewer settings and choose <b>Connect via Kairo Link</b>. You'll come back here to approve it, and it will then appear in this list.
+          </p>
+        </div>
+      ) : (
       <div className="list">
         {apps.map((a) => (
           <div className="list-item" key={a.id} style={{ flexWrap: "wrap", gap: 10 }}>
@@ -259,6 +268,7 @@ function ConnectedApps() {
           </div>
         ))}
       </div>
+      )}
     </div>
   );
 }
