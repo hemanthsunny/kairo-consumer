@@ -14,6 +14,7 @@ const PublicProfile = lazy(() => import("./pages/PublicProfile"));
 const BookingPage = lazy(() => import("./pages/BookingPage"));
 const Manage = lazy(() => import("./pages/Manage"));
 const Legal = lazy(() => import("./pages/Legal"));
+const Invite = lazy(() => import("./pages/Invite"));
 
 export function Loading() {
   return <div className="loading" role="status"><div className="spinner" /><span className="sr-only">Loading</span></div>;
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Route>
           <Route path="/b/:token" element={<Manage />} />
+          <Route path="/invite/:token" element={<Invite />} />
           <Route path="/:handle" element={<PublicProfile />} />
           <Route path="/:handle/:slug" element={<BookingPage />} />
         </Routes>

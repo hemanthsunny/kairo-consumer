@@ -7,6 +7,7 @@ import { Loading } from "../App";
 
 interface PublicLink {
   host: { name: string; handle: string; timezone: string };
+  people?: string[];
   link: { slug: string; title: string; description: string | null; duration_min: number; location: string | null; ask_phone: boolean };
   window_end: string;
   slots: string[];
@@ -22,6 +23,20 @@ interface Confirmed {
   location: string | null;
   manage_url: string;
   host: string;
+}
+
+export function joinNames(names: string[]) {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+}
+
+export function AvatarStack({ names }: { names: string[] }) {
+  return (
+    <div className="avatar-stack" aria-hidden="true">
+      {names.slice(0, 4).map((n, i) => <Initials key={i} name={n} />)}
+      {names.length > 4 && <div className="avatar more">+{names.length - 4}</div>}
+    </div>
+  );
 }
 
 export function Initials({ name }: { name: string }) {
@@ -47,7 +62,7 @@ export default function BookingPage() {
       const now = Date.now();
       const d = await api<PublicLink>(`/public/${handle}/${slug}?from=${now}&to=${now + 62 * 86400000}`, { auth: false });
       setData(d);
-      document.title = `${d.link.title} · ${d.host.name}`;
+      document.title = `${d.link.title} · ${d.people?.length ? joinNames(d.people) : d.host.name}`;
     } catch (e) {
       setError((e as Error).message);
     }
@@ -101,9 +116,9 @@ export default function BookingPage() {
     <div className="booking-wrap">
       <div className="booking-card">
         <aside className="booking-info">
-          <Initials name={data.host.name} />
+          {data.people?.length ? <AvatarStack names={data.people} /> : <Initials name={data.host.name} />}
           <div>
-            <p className="muted small">{data.host.name}</p>
+            <p className="muted small">{data.people?.length ? `With ${joinNames(data.people)}` : data.host.name}</p>
             <h1 style={{ fontSize: 22, marginTop: 2 }}>{data.link.title}</h1>
           </div>
           <div className="stack" style={{ gap: 8 }}>

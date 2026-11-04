@@ -14,12 +14,18 @@ export default function Login() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (ready && session) nav(params.get("plan") === "premium" ? "/app/settings#plan" : "/app", { replace: true });
-  }, [ready, session, nav, params]);
-
+  const next = (() => {
+    const n = params.get("next") ?? "";
+    return /^\/(app|invite\/)[\w/#?=&-]*$/.test(n) ? n : null;
+  })();
   const wantsPremium = params.get("plan") === "premium";
-  const redirectTo = `${window.location.origin}${wantsPremium ? "/app/settings#plan" : "/app"}`;
+  const target = next ?? (wantsPremium ? "/app/settings#plan" : "/app");
+
+  useEffect(() => {
+    if (ready && session) nav(target, { replace: true });
+  }, [ready, session, nav, target]);
+
+  const redirectTo = `${window.location.origin}${target}`;
 
   async function oauth(provider: "google" | "azure") {
     setBusy(provider);

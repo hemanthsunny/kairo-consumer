@@ -166,6 +166,7 @@ export interface NewEvent {
   hostTz: string;
   guestName: string;
   guestEmail: string;
+  extraAttendees?: { email: string; name: string | null }[];
   wantVideo: boolean;
   location?: string | null;
   requestId: string;
@@ -183,7 +184,10 @@ export async function createEvent(provider: Provider, token: string, ev: NewEven
       description: ev.description,
       start: { dateTime: new Date(ev.start).toISOString(), timeZone: ev.hostTz },
       end: { dateTime: new Date(ev.end).toISOString(), timeZone: ev.hostTz },
-      attendees: [{ email: ev.guestEmail, displayName: ev.guestName }],
+      attendees: [
+        { email: ev.guestEmail, displayName: ev.guestName },
+        ...(ev.extraAttendees ?? []).map((a) => ({ email: a.email, displayName: a.name ?? undefined })),
+      ],
       reminders: { useDefault: true },
     };
     if (ev.location) body.location = ev.location;
@@ -210,7 +214,10 @@ export async function createEvent(provider: Provider, token: string, ev: NewEven
     body: { contentType: "text", content: ev.description },
     start: { dateTime: new Date(ev.start).toISOString().slice(0, 19), timeZone: "UTC" },
     end: { dateTime: new Date(ev.end).toISOString().slice(0, 19), timeZone: "UTC" },
-    attendees: [{ emailAddress: { address: ev.guestEmail, name: ev.guestName }, type: "required" }],
+    attendees: [
+      { emailAddress: { address: ev.guestEmail, name: ev.guestName }, type: "required" },
+      ...(ev.extraAttendees ?? []).map((a) => ({ emailAddress: { address: a.email, name: a.name ?? a.email }, type: "required" })),
+    ],
     transactionId: ev.requestId,
   };
   if (ev.location) base.location = { displayName: ev.location };

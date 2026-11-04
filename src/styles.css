@@ -296,3 +296,11 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
 @media (max-width: 560px) {
   .reminder-row select { flex: 1 1 100%; min-width: 0; order: 3; }
 }
+
+.avatar-stack { display: flex; }
+.avatar-stack .avatar { border: 2px solid var(--surface, #fff); margin-left: -10px; }
+.avatar-stack .avatar:first-child { margin-left: 0; }
+.avatar.more { background: var(--accent-50); color: var(--accent-600); font-size: 13px; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.person-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border, #e5e7eb); }
+.person-row:last-child { border-bottom: 0; }

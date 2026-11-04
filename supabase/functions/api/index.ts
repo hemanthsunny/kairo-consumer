@@ -21,6 +21,7 @@ import {
   renderEmail,
   renderEventEmail,
   renderEventShort,
+  renderInviteEmail,
   renderShort,
   sendEmail,
   sendSms,
@@ -66,6 +67,52 @@ async function confirmedBookings(userId: string, from: number, to: number) {
 // ===================================================================================
 // Health
 
+// ---- group links ----
+
+const MAX_MEMBERS = 10;
+
+function displayName(p: { full_name: string | null; handle?: string; email: string | null }) {
+  return p.full_name || p.email?.split("@")[0] || p.handle || "Someone";
+}
+
+async function activeMembers(linkId: string): Promise<{ id: string; user_id: string; name: string; email: string }[]> {
+  const db = admin();
+  const { data } = await db.from("link_members").select("id,user_id").eq("link_id", linkId).eq("status", "active");
+  const ids = (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
+  if (!ids.length) return [];
+  const [{ data: profs }, { data: accs }] = await Promise.all([
+    db.from("profiles").select("id,full_name,email,handle").in("id", ids),
+    db.from("connected_accounts").select("user_id,email,created_at").in("user_id", ids).order("created_at"),
+  ]);
+  return (data ?? []).filter((m) => m.user_id).map((m) => {
+    const p = (profs ?? []).find((x) => x.id === m.user_id);
+    const mine = (accs ?? []).filter((a) => a.user_id === m.user_id);
+    // invite goes to the calendar they sign in with, else their first connected calendar
+    const email = mine.find((a) => a.email === p?.email)?.email ?? mine[0]?.email ?? p?.email ?? "";
+    return { id: m.id, user_id: m.user_id as string, name: p ? displayName(p) : "Someone", email };
+  });
+}
+
+function joinNames(names: string[]) {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+}
+
+/** Busy times + bookings across the owner and every active member. */
+async function groupBusy(ownerId: string, memberIds: string[], from: number, to: number, live = false) {
+  const users = [ownerId, ...memberIds];
+  const [busyLists, bookingLists] = await Promise.all([
+    Promise.all(users.map((u) => busyForUser(u, from, to, live))),
+    Promise.all(users.map((u) => confirmedBookings(u, from, to))),
+  ]);
+  const ownerBookings = bookingLists[0];
+  return {
+    busy: [...busyLists.flat().flatMap((b) => b.busy), ...bookingLists.flat()],
+    ownerBookings,
+    degraded: busyLists.flat().some((b) => b.error),
+  };
+}
+
 route("GET", "/health", async () => json({ ok: true, product: env.productName }));
 
 // ===================================================================================
@@ -77,7 +124,7 @@ route("POST", "/me/connect", async (req) => {
   const provider = b.provider === "microsoft" ? "microsoft" : b.provider === "google" ? "google" : null;
   if (!provider) throw new HttpError(400, "Choose Google or Microsoft");
   const state = randomToken(24);
-  const returnTo = typeof b.returnTo === "string" && b.returnTo.startsWith("/app") ? b.returnTo : "/app/calendars";
+  const returnTo = typeof b.returnTo === "string" && /^\/(app|invite\/)/.test(b.returnTo) ? b.returnTo : "/app/calendars";
   await admin().from("oauth_states").insert({ state, user_id: user.id, provider, return_to: returnTo });
   return json({ url: authUrl(provider, state, typeof b.loginHint === "string" ? b.loginHint : undefined) });
 });
@@ -289,12 +336,23 @@ route("GET", "/public/:handle", async (_req, p) => {
   const { data: profile } = await db.from("profiles").select("id,handle,full_name,timezone,plan,trial_ends_at")
     .eq("handle", p.handle.toLowerCase()).maybeSingle();
   if (!profile) throw new HttpError(404, "This page doesn't exist");
-  const { data: links } = await db.from("links").select("slug,title,description,duration_min,location_type,location_value")
+  const { data: links } = await db.from("links").select("id,slug,title,description,duration_min,location_type,location_value")
     .eq("user_id", profile.id).eq("is_active", true).order("created_at");
+  const hostName = profile.full_name || profile.handle;
+  const withPeople = await Promise.all((links ?? []).map(async (l) => {
+    const members = await activeMembers(l.id);
+    return {
+      ...l,
+      id: undefined,
+      location: locationLabel(l),
+      location_value: undefined,
+      people: members.length ? [hostName, ...members.map((m) => m.name)] : [],
+    };
+  }));
   return json({
-    host: { name: profile.full_name || profile.handle, handle: profile.handle, timezone: profile.timezone },
+    host: { name: hostName, handle: profile.handle, timezone: profile.timezone },
     paused: effectivePlan(profile as Profile) === "inactive",
-    links: (links ?? []).map((l) => ({ ...l, location: locationLabel(l), location_value: undefined })),
+    links: withPeople,
   });
 });
 
@@ -306,25 +364,25 @@ route("GET", "/public/:handle/:slug", async (_req, p, url) => {
   const rules = rulesFromLink(link);
   let slots: number[] = [];
   let degraded = false;
+  const members = await activeMembers(link.id);
   if (to > from) {
     const pad = 86400000;
-    const [busy, bookings] = await Promise.all([
-      busyForUser(profile.id, from - pad, to + pad),
-      confirmedBookings(profile.id, from - pad, to + pad),
-    ]);
-    degraded = busy.some((b) => b.error);
+    const g = await groupBusy(profile.id, members.map((m) => m.user_id), from - pad, to + pad);
+    degraded = g.degraded;
     slots = generateSlots({
       now,
       hostTz: profile.timezone,
       rules,
-      busy: [...busy.flatMap((b) => b.busy), ...bookings],
-      linkBookings: bookings.filter((b) => b.link_id === link.id),
+      busy: g.busy,
+      linkBookings: g.ownerBookings.filter((b) => b.link_id === link.id),
       from,
       to,
     });
   }
+  const hostName = profile.full_name || profile.handle;
   return json({
-    host: { name: profile.full_name || profile.handle, handle: profile.handle, timezone: profile.timezone },
+    host: { name: hostName, handle: profile.handle, timezone: profile.timezone },
+    people: members.length ? [hostName, ...members.map((m) => m.name)] : [],
     link: {
       slug: link.slug,
       title: link.title,
@@ -356,16 +414,14 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
   const now = Date.now();
   const end = start + link.duration_min * 60000;
   const pad = 86400000;
-  const [busy, bookings] = await Promise.all([
-    busyForUser(profile.id, start - pad, end + pad, true),
-    confirmedBookings(profile.id, start - pad, end + pad),
-  ]);
+  const members = await activeMembers(link.id);
+  const g = await groupBusy(profile.id, members.map((m) => m.user_id), start - pad, end + pad, true);
   const ok = isSlotAvailable({
     now,
     hostTz: profile.timezone,
     rules: rulesFromLink(link),
-    busy: [...busy.flatMap((x) => x.busy), ...bookings],
-    linkBookings: bookings.filter((x) => x.link_id === link.id),
+    busy: g.busy,
+    linkBookings: g.ownerBookings.filter((x) => x.link_id === link.id),
   }, start);
   if (!ok) throw new HttpError(409, "Sorry, that time was just taken. Please pick another.");
 
@@ -406,6 +462,7 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
           title: booking.title,
           description: [
             `Booked with ${env.productName}.`,
+            members.length ? `With ${joinNames([profile.full_name || profile.handle, ...members.map((m) => m.name)])}.` : "",
             note ? `Note from ${name}: ${note}` : "",
             phone ? `Phone: ${phone}` : "",
             `Manage: ${env.siteUrl}/b/${booking.manage_token}`,
@@ -415,6 +472,7 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
           hostTz: profile.timezone,
           guestName: name,
           guestEmail: email,
+          extraAttendees: members.filter((m) => m.email).map((m) => ({ email: m.email, name: m.name })),
           wantVideo: link.location_type === "auto",
           location: booking.meeting_url ?? location,
           requestId: booking.id,
@@ -434,7 +492,8 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
   }
 
   await clearBusyCache(profile.id);
-  await enqueueForBooking(profile, booking as BookingRow);
+  for (const m of members) await clearBusyCache(m.user_id);
+  await enqueueForBooking(profile, booking as BookingRow, members.map((m) => m.user_id));
   // send confirmations now rather than waiting for the cron
   await processOutbox({ bookingId: booking.id, attachIcs: !written });
 
@@ -449,7 +508,7 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
       meeting_url: booking.meeting_url,
       location: booking.location_text,
       manage_url: `${env.siteUrl}/b/${booking.manage_token}`,
-      host: profile.full_name || profile.handle,
+      host: joinNames([profile.full_name || profile.handle, ...members.map((m) => m.name)]),
     },
   });
 });
@@ -495,7 +554,9 @@ async function cancelBooking(b: BookingRow & { write_account_id: string | null }
     cancelled_at: new Date().toISOString(),
   }).eq("id", b.id);
   const profile = await loadProfile(b.user_id);
-  await enqueueCancellation(profile, b, by);
+  const linkId = (b as unknown as { link_id: string | null }).link_id;
+  const members = linkId ? await activeMembers(linkId) : [];
+  await enqueueCancellation(profile, b, by, members.map((m) => m.user_id));
   await clearBusyCache(b.user_id);
   await processOutbox({ bookingId: b.id, attachIcs: !b.provider_event_id });
 }
@@ -521,6 +582,159 @@ route("POST", "/me/bookings/:id/cancel", async (req, p) => {
 });
 
 // Send yourself a test reminder on a channel
+async function ownLink(userId: string, linkId: string) {
+  const { data: link } = await admin().from("links").select("*").eq("id", linkId).eq("user_id", userId).maybeSingle();
+  if (!link) throw new HttpError(404, "Link not found");
+  return link;
+}
+
+async function membersFor(linkId: string) {
+  const db = admin();
+  const { data } = await db.from("link_members").select("id,email,status,user_id,invited_at,joined_at").eq("link_id", linkId).order("invited_at");
+  const ids = (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
+  const { data: profs } = ids.length ? await db.from("profiles").select("id,full_name,email,handle").in("id", ids) : { data: [] };
+  return (data ?? []).map((m) => {
+    const p = (profs ?? []).find((x) => x.id === m.user_id);
+    return { id: m.id, email: m.email, status: m.status, name: p ? displayName(p) : null, joined_at: m.joined_at };
+  });
+}
+
+async function sendInvite(owner: Profile, link: Record<string, unknown>, email: string, token: string) {
+  const mail = renderInviteEmail(owner.full_name || owner.handle, link.title as string, link.duration_min as number, `${env.siteUrl}/invite/${token}`);
+  await sendEmail(email, mail.subject, mail.html, mail.text);
+}
+
+route("GET", "/me/links/:id/members", async (req, p) => {
+  const user = await requireUser(req);
+  await ownLink(user.id, p.id);
+  return json({ members: await membersFor(p.id) });
+});
+
+route("POST", "/me/links/:id/members", async (req, p) => {
+  const user = await requireUser(req);
+  const owner = await loadProfile(user.id);
+  const link = await ownLink(user.id, p.id);
+  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "Group links are part of Premium. Go Premium to add people to a link.");
+  const b = await body<{ emails?: unknown }>(req);
+  const raw = Array.isArray(b.emails) ? b.emails : [];
+  const emails = Array.from(new Set(raw.map((e) => String(e).trim().toLowerCase()).filter(Boolean)));
+  const bad = emails.find((e) => !isEmail(e));
+  if (bad) throw new HttpError(400, `“${bad}” doesn't look like an email address`);
+  const { data: myAccounts } = await admin().from("connected_accounts").select("email").eq("user_id", user.id);
+  const mine = new Set([owner.email, ...(myAccounts ?? []).map((a) => a.email)].filter(Boolean));
+  const add = emails.filter((e) => !mine.has(e));
+  const db = admin();
+  const { data: existing } = await db.from("link_members").select("id,email,status,invite_token").eq("link_id", link.id);
+  const current = (existing ?? []).filter((m) => m.status !== "declined");
+  const fresh = add.filter((e) => !current.some((m) => m.email === e));
+  if (current.length + fresh.length > MAX_MEMBERS) throw new HttpError(400, `A link can include up to ${MAX_MEMBERS} other people.`);
+  for (const email of fresh) {
+    const prev = (existing ?? []).find((m) => m.email === email);
+    const { data: row, error } = prev
+      ? await db.from("link_members").update({ status: "invited", user_id: null, invited_at: new Date().toISOString(), joined_at: null })
+        .eq("id", prev.id).select("invite_token").single()
+      : await db.from("link_members").insert({ link_id: link.id, email }).select("invite_token").single();
+    if (error) throw error;
+    try {
+      await sendInvite(owner, link, email, row.invite_token);
+    } catch (e) {
+      console.error("invite email", e);
+    }
+  }
+  return json({ members: await membersFor(link.id), added: fresh.length });
+});
+
+route("POST", "/me/links/:id/members/:mid/resend", async (req, p) => {
+  const user = await requireUser(req);
+  const owner = await loadProfile(user.id);
+  const link = await ownLink(user.id, p.id);
+  const { data: m } = await admin().from("link_members").select("*").eq("id", p.mid).eq("link_id", link.id).maybeSingle();
+  if (!m) throw new HttpError(404, "Person not found");
+  if (m.status === "active") return json({ ok: true });
+  await admin().from("link_members").update({ status: "invited" }).eq("id", m.id);
+  await sendInvite(owner, link, m.email, m.invite_token);
+  return json({ ok: true });
+});
+
+route("DELETE", "/me/members/:mid", async (req, p) => {
+  const user = await requireUser(req);
+  const db = admin();
+  const { data: m } = await db.from("link_members").select("id,user_id,link_id").eq("id", p.mid).maybeSingle();
+  if (!m) throw new HttpError(404, "Not found");
+  const { data: link } = await db.from("links").select("user_id").eq("id", m.link_id).maybeSingle();
+  if (m.user_id !== user.id && link?.user_id !== user.id) throw new HttpError(403, "You can't change this link");
+  await db.from("link_members").delete().eq("id", m.id);
+  return json({ ok: true });
+});
+
+route("GET", "/me/shared-links", async (req) => {
+  const user = await requireUser(req);
+  const db = admin();
+  const { data: rows } = await db.from("link_members").select("id,link_id,joined_at").eq("user_id", user.id).eq("status", "active");
+  const out = [];
+  for (const r of rows ?? []) {
+    const { data: link } = await db.from("links").select("id,user_id,slug,title,description,duration_min,is_active").eq("id", r.link_id).maybeSingle();
+    if (!link) continue;
+    const { data: owner } = await db.from("profiles").select("full_name,handle,email").eq("id", link.user_id).single();
+    const members = await activeMembers(link.id);
+    const ownerName = owner ? displayName(owner) : "Someone";
+    out.push({
+      member_id: r.id,
+      title: link.title,
+      description: link.description,
+      duration_min: link.duration_min,
+      is_active: link.is_active,
+      owner: ownerName,
+      url: `${env.siteUrl}/${owner?.handle}/${link.slug}`,
+      people: [ownerName, ...members.map((m) => m.name)],
+    });
+  }
+  return json({ links: out });
+});
+
+route("GET", "/invites/:token", async (_req, p) => {
+  const db = admin();
+  const { data: m } = await db.from("link_members").select("*").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite link isn't valid any more. Ask for a new one.");
+  const { data: link } = await db.from("links").select("id,user_id,title,description,duration_min").eq("id", m.link_id).maybeSingle();
+  if (!link) throw new HttpError(404, "This call link has been deleted.");
+  const { data: owner } = await db.from("profiles").select("full_name,handle,email").eq("id", link.user_id).single();
+  const members = await activeMembers(link.id);
+  return json({
+    email: m.email,
+    status: m.status,
+    joined_user_id: m.user_id,
+    owner: owner ? displayName(owner) : "Someone",
+    owner_user_id: link.user_id,
+    link: { title: link.title, description: link.description, duration_min: link.duration_min },
+    people: members.map((x) => x.name),
+  });
+});
+
+route("POST", "/invites/:token/accept", async (req, p) => {
+  const user = await requireUser(req);
+  const db = admin();
+  const { data: m } = await db.from("link_members").select("*").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite link isn't valid any more. Ask for a new one.");
+  const { data: link } = await db.from("links").select("user_id").eq("id", m.link_id).maybeSingle();
+  if (!link) throw new HttpError(404, "This call link has been deleted.");
+  if (link.user_id === user.id) throw new HttpError(400, "This is your own link.");
+  if (m.status === "active" && m.user_id && m.user_id !== user.id) throw new HttpError(409, "Someone has already joined with this invite.");
+  const { count } = await db.from("connected_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id);
+  if (!count) throw new HttpError(400, "Connect a calendar first, so people only see times when you're free.");
+  const { data: dup } = await db.from("link_members").select("id").eq("link_id", m.link_id).eq("user_id", user.id).neq("id", m.id).maybeSingle();
+  if (dup) await db.from("link_members").delete().eq("id", m.id);
+  else await db.from("link_members").update({ user_id: user.id, status: "active", joined_at: new Date().toISOString() }).eq("id", m.id);
+  return json({ ok: true });
+});
+
+route("POST", "/invites/:token/decline", async (_req, p) => {
+  const { data: m } = await admin().from("link_members").select("id,status").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite link isn't valid any more.");
+  await admin().from("link_members").update({ status: "declined", user_id: null, joined_at: null }).eq("id", m.id);
+  return json({ ok: true });
+});
+
 route("POST", "/me/test-reminder", async (req) => {
   const user = await requireUser(req);
   const profile = await loadProfile(user.id);
@@ -739,6 +953,25 @@ async function scanReminders() {
             send_at: new Date(start - off * 60000).toISOString(),
             dedupe_key: `r:${b.id}:${ch}:${off}`,
           });
+        }
+      }
+      // bookings on group links this person has joined
+      const { data: memberOf } = await db.from("link_members").select("link_id").eq("user_id", profile.id).eq("status", "active");
+      if (memberOf?.length) {
+        const { data: groupBookings } = await db.from("bookings").select("id,start_at,provider_event_id")
+          .in("link_id", memberOf.map((m) => m.link_id)).eq("status", "confirmed")
+          .gt("start_at", new Date(from).toISOString()).lte("start_at", new Date(to).toISOString());
+        for (const b of groupBookings ?? []) {
+          (bookings ?? []).push(b);
+          const start = Date.parse(b.start_at);
+          for (const ch of channels) for (const off of prefs[ch]) {
+            if (!due(start, off)) continue;
+            rows.push({
+              user_id: profile.id, booking_id: b.id, recipient: "host", channel: ch, kind: "reminder", offset_min: off,
+              send_at: new Date(start - off * 60000).toISOString(),
+              dedupe_key: `r:${b.id}:${profile.id}:${ch}:${off}`,
+            });
+          }
         }
       }
 

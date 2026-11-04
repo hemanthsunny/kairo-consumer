@@ -4,12 +4,12 @@ import { api } from "../lib/api";
 import { durationLabel } from "../lib/time";
 import { IconChevron, IconClock } from "../components/Icons";
 import { Loading } from "../App";
-import { Initials } from "./BookingPage";
+import { Initials, joinNames } from "./BookingPage";
 
 interface Data {
   host: { name: string; handle: string };
   paused: boolean;
-  links: { slug: string; title: string; description: string | null; duration_min: number; location: string | null }[];
+  links: { slug: string; title: string; description: string | null; duration_min: number; location: string | null; people?: string[] }[];
 }
 
 export default function PublicProfile() {
@@ -48,6 +48,7 @@ export default function PublicProfile() {
                 <div>
                   <p style={{ fontWeight: 600 }}>{l.title}</p>
                   <p className="meta small" style={{ marginTop: 4 }}><IconClock />{durationLabel(l.duration_min)}{l.location ? ` · ${l.location}` : ""}</p>
+                  {l.people && l.people.length > 1 && <p className="small muted" style={{ marginTop: 4 }}>With {joinNames(l.people)}</p>}
                 </div>
                 <IconChevron width={18} />
               </Link>

@@ -3,9 +3,9 @@
 import type { Config, Context } from "https://edge.netlify.com";
 
 const API = "https://aqzbnqbuxvbgwtendieh.supabase.co/functions/v1/api";
-const RESERVED = new Set(["app", "b", "api", "login", "privacy", "terms", "assets"]);
+const RESERVED = new Set(["app", "b", "api", "login", "privacy", "terms", "assets", "invite"]);
 
-type PublicLink = { slug: string; title: string; description: string | null; duration_min: number; location: string | null };
+type PublicLink = { slug: string; title: string; description: string | null; duration_min: number; location: string | null; people?: string[] };
 type PublicProfile = { host: { name: string; handle: string }; paused: boolean; links: PublicLink[] };
 
 const esc = (s: string) =>
@@ -42,7 +42,9 @@ export default async (req: Request, context: Context) => {
   if (slug) {
     const link = data.links.find((l) => l.slug === slug);
     if (!link) return res;
-    title = `${link.title} with ${name}`;
+    const people = link.people && link.people.length > 1 ? link.people : [name];
+    const names = people.length === 1 ? people[0] : `${people.slice(0, -1).join(", ")} & ${people[people.length - 1]}`;
+    title = `${link.title} with ${names}`;
     const bits = [duration(link.duration_min), link.location?.replace(/\s*\(.*\)$/, "")].filter(Boolean).join(" · ");
     description = link.description
       ? clip(`${link.description} — ${bits}`, 200)
@@ -88,5 +90,5 @@ export default async (req: Request, context: Context) => {
 
 export const config: Config = {
   path: "/*",
-  excludedPath: ["/", "/app", "/app/*", "/b/*", "/api/*", "/assets/*", "/login", "/privacy", "/terms"],
+  excludedPath: ["/", "/app", "/app/*", "/b/*", "/api/*", "/assets/*", "/invite/*", "/login", "/privacy", "/terms"],
 };

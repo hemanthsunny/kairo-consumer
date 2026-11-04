@@ -1,4 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { api } from "../lib/api";
+import { joinNames } from "../pages/BookingPage";
 import { Link } from "react-router-dom";
 import { supabase, LinkRow, WeeklyHours } from "../lib/supabase";
 import { durationLabel } from "../lib/time";
@@ -26,6 +28,12 @@ export default function Links() {
   const freeLimitReached = plan !== "premium" && links.filter((l) => l.is_active).length >= 1;
   const [editing, setEditing] = useState<Draft | null>(null);
   const defaultWrite = calendars.find((c) => c.can_write)?.id ?? null;
+  const [memberRows, setMemberRows] = useState<{ link_id: string; status: string }[]>([]);
+  const loadMembers = useCallback(async () => {
+    const { data } = await supabase.from("link_members").select("link_id,status").in("link_id", links.map((l) => l.id));
+    setMemberRows(data ?? []);
+  }, [links]);
+  useEffect(() => { if (links.length) loadMembers(); }, [links, loadMembers]);
 
   async function toggle(l: LinkRow, v: boolean) {
     const { error } = await supabase.from("links").update({ is_active: v }).eq("id", l.id);
@@ -65,6 +73,12 @@ export default function Links() {
                     <h3>{l.title}</h3>
                     <span className="badge">{durationLabel(l.duration_min)}</span>
                     {!l.is_active && <span className="badge">Off</span>}
+                    {(() => {
+                      const ms = memberRows.filter((m) => m.link_id === l.id && m.status !== "declined");
+                      if (!ms.length) return null;
+                      const waiting = ms.filter((m) => m.status === "invited").length;
+                      return <span className="badge accent">Group · {ms.length + 1} people{waiting ? ` · ${waiting} invited` : ""}</span>;
+                    })()}
                   </div>
                   <a className="small truncate" href={linkUrl(profile, l)} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 4 }}>
                     {linkUrl(profile, l).replace(/^https?:\/\//, "")}
@@ -84,7 +98,8 @@ export default function Links() {
         })}
         {!links.length && accounts.length > 0 && <div className="card empty">No links yet.</div>}
       </div>
-      {editing && <LinkEditor draft={editing} onClose={() => setEditing(null)} />}
+      <SharedWithMe />
+      {editing && <LinkEditor draft={editing} onClose={() => { setEditing(null); loadMembers(); }} />}
     </div>
   );
 }
@@ -98,6 +113,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const writable = calendars.filter((c) => c.can_write);
+  const [pendingPeople, setPendingPeople] = useState<string[]>([]);
 
   function setDay(day: string, ranges: [string, string][]) {
     set("weekly_hours", { ...d.weekly_hours, [day]: ranges });
@@ -118,13 +134,22 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     const row = { ...d, slug, title: d.title.trim(), user_id: profile.id, description: d.description?.trim() || null };
     delete (row as { id?: string }).id;
     const res = draft.id
-      ? await supabase.from("links").update(row).eq("id", draft.id)
-      : await supabase.from("links").insert(row);
-    setSaving(false);
+      ? await supabase.from("links").update(row).eq("id", draft.id).select("id").single()
+      : await supabase.from("links").insert(row).select("id").single();
     if (res.error) {
+      setSaving(false);
       setError(res.error.code === "23505" ? "You already have a link with that address. Choose another." : friendlyError(res.error.message));
       return;
     }
+    if (pendingPeople.length && res.data) {
+      try {
+        await api(`/me/links/${res.data.id}/members`, { method: "POST", body: JSON.stringify({ emails: pendingPeople }) });
+        toast(`Invites sent to ${pendingPeople.length} ${pendingPeople.length === 1 ? "person" : "people"}`);
+      } catch (e) {
+        toast((e as Error).message);
+      }
+    }
+    setSaving(false);
     toast(draft.id ? "Link saved" : "Link created");
     await reload();
     onClose();
@@ -165,6 +190,12 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           </label>
         </div>
 
+        <label className="field">Description <span className="hint">(shown on the booking page and in link previews)</span>
+          <textarea value={d.description ?? ""} maxLength={500} rows={2} onChange={(e) => set("description", e.target.value)} placeholder="Optional: what the call is for, what to prepare" />
+        </label>
+
+        <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople} />
+
         <div className="field" role="group" aria-label="Duration">
           <span>Length</span>
           <div className="row wrap">
@@ -204,7 +235,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         )}
 
         <div className="field">
-          <span>When you're available <span className="hint">(your time zone: {profile.timezone})</span></span>
+          <span>When you're available <span className="hint">(your time zone: {profile.timezone}{" · on group links, times also skip everyone else's busy slots"})</span></span>
           <div className="card flat" style={{ padding: "6px 14px" }}>
             {DAYS.map(([key, name]) => {
               const ranges = d.weekly_hours[key] ?? [];
@@ -274,9 +305,6 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
                 {[1, 2, 3, 4, 5, 6, 8, 10].map((v) => <option key={v} value={v}>{v}</option>)}
               </select>
             </label>
-            <label className="field" style={{ gridColumn: "1 / -1" }}>Description shown to guests
-              <textarea value={d.description ?? ""} maxLength={500} onChange={(e) => set("description", e.target.value)} placeholder="Optional: what the call is for, what to prepare" />
-            </label>
           </div>
         )}
 
@@ -344,6 +372,162 @@ function HandleEditor() {
           <button className="btn sm" onClick={() => setEditing(true)}>Change</button>
         </div>
       )}
+    </div>
+  );
+}
+
+type Member = { id: string; email: string; status: "invited" | "active" | "declined"; name: string | null };
+
+function PeopleField({ linkId, pending, setPending }: { linkId?: string; pending: string[]; setPending: (v: string[]) => void }) {
+  const { plan, toast } = useApp();
+  const [members, setMembers] = useState<Member[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const premium = plan === "premium";
+
+  const load = useCallback(async () => {
+    if (!linkId) return;
+    try {
+      const r = await api<{ members: Member[] }>(`/me/links/${linkId}/members`);
+      setMembers(r.members);
+    } catch { /* ignore */ }
+  }, [linkId]);
+  useEffect(() => { load(); }, [load]);
+
+  async function add() {
+    setErr(null);
+    const emails = input.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+    if (!emails.length) return;
+    const bad = emails.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    if (bad) return setErr(`“${bad}” doesn't look like an email address`);
+    if (!linkId) {
+      setPending(Array.from(new Set([...pending, ...emails])));
+      setInput("");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await api<{ members: Member[]; added: number }>(`/me/links/${linkId}/members`, { method: "POST", body: JSON.stringify({ emails }) });
+      setMembers(r.members);
+      setInput("");
+      toast(r.added ? `Invite sent to ${r.added} ${r.added === 1 ? "person" : "people"}` : "Already on this link");
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+    setBusy(false);
+  }
+
+  async function remove(m: Member) {
+    if (!confirm(`Remove ${m.name ?? m.email} from this link?`)) return;
+    try {
+      await api(`/me/members/${m.id}`, { method: "DELETE" });
+      setMembers((x) => x.filter((y) => y.id !== m.id));
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  async function resend(m: Member) {
+    try {
+      await api(`/me/links/${linkId}/members/${m.id}/resend`, { method: "POST" });
+      toast(`Invite re-sent to ${m.email}`);
+      load();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  const shown = members;
+  return (
+    <div className="field">
+      <span>People on this call {!premium && <span className="badge accent" style={{ marginLeft: 6 }}>Premium</span>}</span>
+      <div className="card flat stack" style={{ gap: 10, padding: 14 }}>
+        <p className="small muted" style={{ margin: 0 }}>
+          Add anyone who should be on this call. Guests only see times when you're all free, and every booking lands in everyone's calendar. Each person joins once with their own calendar.
+        </p>
+        {(shown.length > 0 || pending.length > 0) && (
+          <div>
+            {shown.map((m) => (
+              <div className="person-row" key={m.id}>
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="truncate" style={{ fontWeight: 500 }}>{m.name ?? m.email}</div>
+                  {m.name && <div className="small faint truncate">{m.email}</div>}
+                </div>
+                <span className={`badge ${m.status === "active" ? "green" : ""}`}>{m.status === "active" ? "Joined" : m.status === "invited" ? "Invited" : "Declined"}</span>
+                {m.status !== "active" && <button type="button" className="btn ghost sm" onClick={() => resend(m)}>Resend</button>}
+                <button type="button" className="btn ghost sm" aria-label={`Remove ${m.email}`} onClick={() => remove(m)}>✕</button>
+              </div>
+            ))}
+            {pending.map((e) => (
+              <div className="person-row" key={e}>
+                <div className="grow truncate">{e}</div>
+                <span className="badge">Invite on save</span>
+                <button type="button" className="btn ghost sm" aria-label={`Remove ${e}`} onClick={() => setPending(pending.filter((x) => x !== e))}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        {premium ? (
+          <div className="row" style={{ gap: 8 }}>
+            <input type="email" className="grow" value={input} placeholder="name@example.com, another@example.com"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
+            <button type="button" className="btn" onClick={add} disabled={busy || !input.trim()}>{busy ? "Adding…" : "Add"}</button>
+          </div>
+        ) : (
+          <p className="small" style={{ margin: 0 }}><Link to="/app/settings#plan">Go Premium</Link> to book calls with several people from one link.</p>
+        )}
+        {err && <div className="alert error" role="alert">{err}</div>}
+      </div>
+    </div>
+  );
+}
+
+type Shared = { member_id: string; title: string; duration_min: number; is_active: boolean; owner: string; url: string; people: string[] };
+
+function SharedWithMe() {
+  const { toast } = useApp();
+  const [items, setItems] = useState<Shared[] | null>(null);
+  const load = useCallback(() => {
+    api<{ links: Shared[] }>("/me/shared-links").then((r) => setItems(r.links)).catch(() => setItems([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  if (!items?.length) return null;
+
+  async function leave(s: Shared) {
+    if (!confirm(`Leave “${s.title}”? People will no longer book you through ${s.owner}'s link.`)) return;
+    try {
+      await api(`/me/members/${s.member_id}`, { method: "DELETE" });
+      toast("You've left the link");
+      load();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="stack">
+      <h2 style={{ fontSize: 17 }}>Shared with you</h2>
+      {items.map((s) => (
+        <div className="card" key={s.member_id} style={{ opacity: s.is_active ? 1 : 0.65 }}>
+          <div className="spread" style={{ flexWrap: "wrap" }}>
+            <div className="grow" style={{ minWidth: 220 }}>
+              <div className="row wrap">
+                <h3>{s.title}</h3>
+                <span className="badge">{durationLabel(s.duration_min)}</span>
+                {!s.is_active && <span className="badge">Off</span>}
+              </div>
+              <p className="small muted" style={{ marginTop: 4 }}>With {joinNames(s.people)} · managed by {s.owner}</p>
+              <a className="small truncate" href={s.url} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 4 }}>{s.url.replace(/^https?:\/\//, "")}</a>
+            </div>
+            <div className="row">
+              <button className="btn sm" onClick={async () => { if (await copyText(s.url)) toast("Link copied"); }}><IconCopy width={15} />Copy</button>
+              <button className="btn ghost sm" onClick={() => leave(s)}>Leave</button>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
