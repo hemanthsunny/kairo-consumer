@@ -171,7 +171,7 @@ export default function BookingPage() {
   );
 }
 
-function MonthView({ month, setMonth, byDay, selected, onSelect, tz, windowEnd }: {
+export function MonthView({ month, setMonth, byDay, selected, onSelect, tz, windowEnd }: {
   month: { y: number; m: number };
   setMonth: (v: { y: number; m: number }) => void;
   byDay: Map<string, string[]>;

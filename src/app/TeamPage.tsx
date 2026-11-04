@@ -2,9 +2,10 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { LinkRow } from "../lib/supabase";
-import { dayKey, durationLabel, fmtDay, fmtTime, tzLabel } from "../lib/time";
+import { dayKey, durationLabel, fmtLongDay, fmtTime, tzLabel } from "../lib/time";
 import { IconArrowLeft, IconCopy, IconPlus } from "../components/Icons";
 import { Loading } from "../App";
+import { MonthView } from "../pages/BookingPage";
 import { blank, Draft, LinkCard, LinkEditor } from "./Links";
 import { copyText, useApp } from "./data";
 
@@ -222,12 +223,15 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
   const [desc, setDesc] = useState("");
   const [video, setVideo] = useState(true);
   const [done, setDone] = useState<string | null>(null);
+  const [day, setDay] = useState<string | null>(null);
+  const [month, setMonth] = useState(() => ({ y: new Date().getFullYear(), m: new Date().getMonth() }));
   const tz = profile.timezone;
 
   async function search() {
     setErr(null);
     setSlot(null);
     setDone(null);
+    setDay(null);
     if (!picked.length) return setErr("Pick at least one teammate");
     setBusy(true);
     try {
@@ -236,6 +240,12 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
       });
       setSlots(r.slots);
       setDegraded(r.degraded);
+      if (r.slots.length) {
+        const first = dayKey(r.slots[0], tz);
+        const [y, m] = first.split("-").map(Number);
+        setDay(first);
+        setMonth({ y, m: m - 1 });
+      } else setDay(null);
     } catch (e) {
       setErr((e as Error).message);
     }
@@ -267,8 +277,9 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
       const k = dayKey(s, tz);
       m.set(k, [...(m.get(k) ?? []), s]);
     }
-    return Array.from(m.entries());
+    return m;
   }, [slots, tz]);
+  const windowEnd = useMemo(() => new Date(Date.now() + 10 * DAY_MS).toISOString(), []);
 
   if (!others.length) {
     return <div className="card empty small">Once teammates join, you can find a time that works for all of you here.</div>;
@@ -302,44 +313,58 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
         <p className="small faint" style={{ margin: 0 }}>Weekdays 08:00–18:00 in {tzLabel(tz)}, next 10 days. Everyone's calendars are checked live.</p>
       </div>
 
-      {err && <div className="alert error" role="alert">{err}</div>}
+      {err && !slot && <div className="alert error" role="alert">{err}</div>}
       {done && <div className="alert success" role="status">Booked: {done}. Everyone has the invite in their calendar.</div>}
       {degraded && slots && <div className="alert info">One of the calendars couldn't be read just now, so some times may not be accurate.</div>}
 
       {slots && (slots.length === 0 ? (
         <div className="card empty small">No time works for everyone in the next 10 days. Try fewer people or a shorter call.</div>
       ) : (
-        <div className="card stack" style={{ gap: 14 }}>
-          {byDay.map(([k, list]) => (
-            <div key={k} className="stack" style={{ gap: 6 }}>
-              <div className="small" style={{ fontWeight: 600 }}>{fmtDay(list[0], tz)}</div>
-              <div className="slot-grid">
-                {list.map((s) => (
-                  <button key={s} type="button" className={`slot-btn ${slot === s ? "on" : ""}`} onClick={() => setSlot(s)}>{fmtTime(s, tz)}</button>
+        <div className="card">
+          <div className="cal-grid">
+            <MonthView month={month} setMonth={setMonth} byDay={byDay} selected={day} onSelect={setDay} tz={tz} windowEnd={windowEnd} />
+            <div className="stack">
+              <p style={{ fontWeight: 600 }}>{day ? fmtLongDay(`${day}T12:00:00Z`, "UTC") : "Choose a day"}</p>
+              <p className="small muted" style={{ margin: 0 }}>{durationLabel(duration)} · everyone free · {tzLabel(tz)}</p>
+              <div className="slots slots-2">
+                {(day ? byDay.get(day) ?? [] : []).map((s) => (
+                  <button key={s} type="button" className={`slot ${slot === s ? "picked" : ""}`} onClick={() => setSlot(s)}>{fmtTime(s, tz)}</button>
                 ))}
+                {day && !(byDay.get(day) ?? []).length && <p className="small muted">No times on this day.</p>}
               </div>
             </div>
-          ))}
+          </div>
         </div>
       ))}
 
       {slot && (
-        <form className="card stack" onSubmit={schedule} noValidate>
-          <h3>{fmtDay(slot, tz)}, {fmtTime(slot, tz)} · {durationLabel(duration)}</h3>
-          <label className="field">Title
-            <input type="text" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          <label className="field">Agenda <span className="hint">(optional)</span>
-            <textarea rows={2} value={desc} maxLength={2000} onChange={(e) => setDesc(e.target.value)} />
-          </label>
-          <label className="row" style={{ gap: 8 }}>
-            <input type="checkbox" checked={video} onChange={(e) => setVideo(e.target.checked)} /> Add a Google Meet / Teams link
-          </label>
-          <div className="row">
-            <button className="btn primary" disabled={busy || !title.trim()}>{busy ? "Sending…" : "Send invite to everyone"}</button>
-            <button type="button" className="btn ghost" onClick={() => setSlot(null)}>Cancel</button>
-          </div>
-        </form>
+        <div className="modal-back" role="dialog" aria-modal="true" aria-label="Send invite" onMouseDown={(e) => e.target === e.currentTarget && !busy && setSlot(null)}>
+          <form className="modal stack" style={{ maxWidth: 480 }} onSubmit={schedule} noValidate>
+            <div className="spread">
+              <h2 style={{ fontSize: 18 }}>New team call</h2>
+              <button type="button" className="btn ghost sm" onClick={() => setSlot(null)} disabled={busy}>Close</button>
+            </div>
+            <div className="card flat stack" style={{ gap: 4, padding: 14 }}>
+              <strong>{fmtLongDay(slot, tz)}, {fmtTime(slot, tz)}</strong>
+              <span className="small muted">{durationLabel(duration)} · {tzLabel(tz)}</span>
+              <span className="small muted">With {others.filter((m) => picked.includes(m.user_id!)).map((m) => m.name ?? m.email).join(", ")}</span>
+            </div>
+            {err && <div className="alert error" role="alert">{err}</div>}
+            <label className="field">Title
+              <input type="text" autoFocus value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+            <label className="field">Agenda <span className="hint">(optional)</span>
+              <textarea rows={3} value={desc} maxLength={2000} onChange={(e) => setDesc(e.target.value)} />
+            </label>
+            <label className="row" style={{ gap: 8 }}>
+              <input type="checkbox" checked={video} onChange={(e) => setVideo(e.target.checked)} /> Add a Google Meet / Teams link
+            </label>
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <button type="button" className="btn" onClick={() => setSlot(null)} disabled={busy}>Cancel</button>
+              <button className="btn primary" disabled={busy || !title.trim()}>{busy ? "Sending…" : "Send invite to everyone"}</button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );
