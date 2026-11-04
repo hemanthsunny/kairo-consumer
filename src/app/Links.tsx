@@ -17,8 +17,19 @@ function blank(writeCal: string | null): Draft {
   return {
     slug: "", title: "", description: "", duration_min: 30, buffer_before_min: 0, buffer_after_min: 0,
     min_notice_min: 240, max_days_ahead: 30, daily_limit: null, slot_step_min: 30, write_calendar_id: writeCal,
-    location_type: "auto", location_value: null, weekly_hours: DEFAULT_HOURS, is_active: true,
+    location_type: "auto", location_value: null, weekly_hours: DEFAULT_HOURS, is_active: true, expires_at: null,
   };
+}
+
+const DAY_MS = 86400000;
+
+function closesLabel(l: Pick<LinkRow, "expires_at" | "is_active">) {
+  if (!l.expires_at) return null;
+  const t = Date.parse(l.expires_at);
+  if (t <= Date.now()) return "Closed";
+  const days = Math.ceil((t - Date.now()) / DAY_MS);
+  if (days <= 1) return `Closes ${new Date(t).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  return `Closes in ${days} days`;
 }
 
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -35,8 +46,25 @@ export default function Links() {
   }, [links]);
   useEffect(() => { if (links.length) loadMembers(); }, [links, loadMembers]);
 
+  async function closeNow(l: LinkRow) {
+    if (!confirm(`Close “${l.title}”? Nobody new can book it. Bookings already made stay in place.`)) return;
+    const { error } = await supabase.from("links").update({ is_active: false, expires_at: new Date().toISOString() }).eq("id", l.id);
+    if (error) toast(friendlyError(error.message));
+    else { toast("Link closed"); reload(); }
+  }
+
+  async function extend(l: LinkRow) {
+    const base = Math.max(Date.now(), l.expires_at ? Date.parse(l.expires_at) : Date.now());
+    const { error } = await supabase.from("links").update({ is_active: true, expires_at: new Date(base + 7 * DAY_MS).toISOString() }).eq("id", l.id);
+    if (error) toast(friendlyError(error.message));
+    else { toast("Open for 7 more days"); reload(); }
+  }
+
   async function toggle(l: LinkRow, v: boolean) {
-    const { error } = await supabase.from("links").update({ is_active: v }).eq("id", l.id);
+    const patch: Partial<LinkRow> = { is_active: v };
+    // reopening a closed link gives it a fresh 7 days
+    if (v && l.expires_at && Date.parse(l.expires_at) <= Date.now()) patch.expires_at = new Date(Date.now() + 7 * DAY_MS).toISOString();
+    const { error } = await supabase.from("links").update(patch).eq("id", l.id);
     if (error) toast(friendlyError(error.message));
     else {
       toast(v ? "Link is live" : "Link turned off");
@@ -72,7 +100,8 @@ export default function Links() {
                   <div className="row wrap">
                     <h3>{l.title}</h3>
                     <span className="badge">{durationLabel(l.duration_min)}</span>
-                    {!l.is_active && <span className="badge">Off</span>}
+                    {!l.is_active && !closesLabel(l) && <span className="badge">Off</span>}
+                    {closesLabel(l) && <span className={`badge ${closesLabel(l) === "Closed" ? "" : "amber"}`}>{closesLabel(l)}</span>}
                     {(() => {
                       const ms = memberRows.filter((m) => m.link_id === l.id && m.status !== "declined");
                       if (!ms.length) return null;
@@ -91,6 +120,10 @@ export default function Links() {
                   <Switch checked={l.is_active} onChange={(v) => toggle(l, v)} label={`Turn ${l.title} on or off`} />
                   <button className="btn sm" onClick={async () => { if (await copyText(linkUrl(profile, l))) toast("Link copied"); }}><IconCopy width={15} />Copy</button>
                   <button className="btn sm" onClick={() => setEditing({ ...l })}>Edit</button>
+                  {l.expires_at && (l.is_active
+                    ? <button className="btn ghost sm" onClick={() => closeNow(l)}>Close</button>
+                    : <button className="btn ghost sm" onClick={() => extend(l)}>Reopen 7 days</button>)}
+                  {l.expires_at && l.is_active && <button className="btn ghost sm" onClick={() => extend(l)}>+7 days</button>}
                 </div>
               </div>
             </div>
@@ -114,6 +147,13 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const writable = calendars.filter((c) => c.can_write);
   const [pendingPeople, setPendingPeople] = useState<string[]>([]);
+  // "keep" leaves an existing closing date alone; new links pick a period
+  const [closeIn, setCloseIn] = useState<string>(draft.id ? "keep" : "never");
+  const [closeTouched, setCloseTouched] = useState(false);
+  useEffect(() => {
+    // group links close after 7 days by default, like Kairo HR scheduling links
+    if (!draft.id && !closeTouched) setCloseIn(pendingPeople.length ? "7" : "never");
+  }, [pendingPeople.length, draft.id, closeTouched]);
 
   function setDay(day: string, ranges: [string, string][]) {
     set("weekly_hours", { ...d.weekly_hours, [day]: ranges });
@@ -131,7 +171,13 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     }
     if (!Object.values(d.weekly_hours).some((r) => r.length)) return setError("Add at least one day you're available");
     setSaving(true);
-    const row = { ...d, slug, title: d.title.trim(), user_id: profile.id, description: d.description?.trim() || null };
+    const expires_at = closeIn === "keep" ? d.expires_at ?? null
+      : closeIn === "never" ? null
+      : new Date(Date.now() + Number(closeIn) * DAY_MS).toISOString();
+    const row = {
+      ...d, slug, title: d.title.trim(), user_id: profile.id, description: d.description?.trim() || null, expires_at,
+      is_active: closeIn !== "keep" && expires_at ? true : d.is_active,
+    };
     delete (row as { id?: string }).id;
     const res = draft.id
       ? await supabase.from("links").update(row).eq("id", draft.id).select("id").single()
@@ -194,7 +240,20 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           <textarea value={d.description ?? ""} maxLength={500} rows={2} onChange={(e) => set("description", e.target.value)} placeholder="Optional: what the call is for, what to prepare" />
         </label>
 
-        <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople} />
+        <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople}
+          onAdded={() => { if (draft.id && !d.expires_at && !closeTouched) setCloseIn("7"); }} />
+
+        <label className="field" style={{ maxWidth: 360 }}>Link closes
+          <select value={closeIn} onChange={(e) => { setCloseTouched(true); setCloseIn(e.target.value); }}>
+            {draft.id && <option value="keep">{d.expires_at ? `Keep current (${closesLabel(d) ?? ""})` : "Keep open (no closing date)"}</option>}
+            <option value="3">After 3 days</option>
+            <option value="7">After 7 days</option>
+            <option value="14">After 14 days</option>
+            <option value="30">After 30 days</option>
+            <option value="never">Never — keep it open</option>
+          </select>
+          <span className="hint">Once the call is booked or the purpose is done, the link stops taking bookings. Bookings already made stay in place.</span>
+        </label>
 
         <div className="field" role="group" aria-label="Duration">
           <span>Length</span>
@@ -378,7 +437,7 @@ function HandleEditor() {
 
 type Member = { id: string; email: string; status: "invited" | "active" | "declined"; name: string | null };
 
-function PeopleField({ linkId, pending, setPending }: { linkId?: string; pending: string[]; setPending: (v: string[]) => void }) {
+function PeopleField({ linkId, pending, setPending, onAdded }: { linkId?: string; pending: string[]; setPending: (v: string[]) => void; onAdded?: () => void }) {
   const { plan, toast } = useApp();
   const [members, setMembers] = useState<Member[]>([]);
   const [input, setInput] = useState("");
@@ -411,6 +470,7 @@ function PeopleField({ linkId, pending, setPending }: { linkId?: string; pending
       const r = await api<{ members: Member[]; added: number }>(`/me/links/${linkId}/members`, { method: "POST", body: JSON.stringify({ emails }) });
       setMembers(r.members);
       setInput("");
+      if (r.added) onAdded?.();
       toast(r.added ? `Invite sent to ${r.added} ${r.added === 1 ? "person" : "people"}` : "Already on this link");
     } catch (e) {
       setErr((e as Error).message);

@@ -71,6 +71,7 @@ export interface LinkRow {
   location_value: string | null;
   weekly_hours: WeeklyHours;
   is_active: boolean;
+  expires_at?: string | null;
   created_at: string;
 }
 
