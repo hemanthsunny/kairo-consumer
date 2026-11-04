@@ -28,6 +28,24 @@ import {
   sendWhatsApp,
 } from "../_shared/notify.ts";
 import { stripe, verifyStripeSignature } from "../_shared/stripe.ts";
+import {
+  APP_SCOPES,
+  type ApiClient,
+  authClient,
+  authConnection,
+  clientById,
+  type Connection,
+  dropWatchesForUser,
+  ensureWatch,
+  ensureWatchesForUser,
+  maintainConnections,
+  mergedBusy,
+  notifyRevoked,
+  onCalendarChanged,
+  pushBusyForUser,
+  randomHex,
+  sha256Hex,
+} from "../_shared/apps.ts";
 
 type Handler = (req: Request, params: Record<string, string>, url: URL) => Promise<Response>;
 const routes: [string, RegExp, Handler][] = [];
@@ -137,7 +155,7 @@ route("POST", "/me/connect", async (req) => {
   const provider = b.provider === "microsoft" ? "microsoft" : b.provider === "google" ? "google" : null;
   if (!provider) throw new HttpError(400, "Choose Google or Microsoft");
   const state = randomToken(24);
-  const returnTo = typeof b.returnTo === "string" && /^\/(app|invite\/)/.test(b.returnTo) ? b.returnTo : "/app/calendars";
+  const returnTo = typeof b.returnTo === "string" && /^\/(app|invite\/|connect\?)/.test(b.returnTo) ? b.returnTo : "/app/calendars";
   await admin().from("oauth_states").insert({ state, user_id: user.id, provider, return_to: returnTo });
   return json({ url: authUrl(provider, state, typeof b.loginHint === "string" ? b.loginHint : undefined) });
 });
@@ -234,6 +252,11 @@ route("GET", "/oauth/:provider/callback", async (_req, p, url) => {
       });
     }
     await clearBusyCache(st.user_id);
+    const { count: appCount } = await db.from("app_connections").select("id", { count: "exact", head: true }).eq("user_id", st.user_id);
+    if (appCount) {
+      const acc = { id: accountId, user_id: st.user_id, provider, email: t.email, label: "", color: "", status: "active" } as AccountRow;
+      background((async () => { await ensureWatch(acc); await pushBusyForUser(st.user_id); })());
+    }
     return back(returnTo, { connected: t.email });
   } catch (e) {
     console.error("oauth callback", e);
@@ -269,6 +292,7 @@ route("DELETE", "/me/accounts/:id", async (req, p) => {
   if (error) throw new HttpError(400, error.message);
   if (tok?.refresh_token_secret_id) await db.rpc("delete_refresh_token", { p_secret_id: tok.refresh_token_secret_id });
   await clearBusyCache(user.id);
+  background(pushBusyForUser(user.id));
   return json({ ok: true });
 });
 
@@ -1010,6 +1034,265 @@ route("POST", "/invites/:token/decline", async (_req, p) => {
   return json({ ok: true });
 });
 
+// ===================================================================================
+// Connected apps (e.g. Kairo HR): consent, tokens, busy times, events, live push
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
+function background(p: Promise<unknown>) {
+  const safe = p.catch((e) => console.error("background", e));
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(safe);
+  return safe;
+}
+
+const SCOPE_LABEL: Record<string, string> = {
+  "busy.read": "See when you're busy across all your connected calendars (times only — never titles or details)",
+  "events.write": "Add events it schedules for you (e.g. interviews) to your calendar",
+};
+
+function parseScopes(raw: unknown, allowed: string[]) {
+  const asked = String(raw ?? "busy.read").split(/[\s,]+/).filter(Boolean);
+  const scopes = Array.from(new Set(asked.filter((s) => (APP_SCOPES as readonly string[]).includes(s) && allowed.includes(s))));
+  if (!scopes.includes("busy.read")) scopes.unshift("busy.read");
+  return scopes;
+}
+
+function checkRedirect(client: ApiClient, uri: string) {
+  if (!client.redirect_uris.includes(uri)) throw new HttpError(400, "This app's return address isn't registered");
+}
+
+function parseTime(v: string | null, fallback: number) {
+  if (!v) return fallback;
+  const n = /^\d+$/.test(v) ? Number(v) : Date.parse(v);
+  if (!Number.isFinite(n)) throw new HttpError(400, `Invalid time: ${v}`);
+  return n;
+}
+
+route("GET", "/apps/authorize-info", async (_req, _p, url) => {
+  const client = await clientById(url.searchParams.get("client_id") ?? "");
+  const redirect = url.searchParams.get("redirect_uri") ?? "";
+  checkRedirect(client, redirect);
+  const scopes = parseScopes(url.searchParams.get("scope"), client.allowed_scopes);
+  return json({ app: { name: client.name, client_id: client.client_id }, scopes: scopes.map((s) => ({ id: s, label: SCOPE_LABEL[s] })) });
+});
+
+route("POST", "/apps/authorize", async (req) => {
+  const user = await requireUser(req);
+  const b = await body<{ client_id?: string; redirect_uri?: string; scope?: string; external_ref?: string; state?: string }>(req);
+  const client = await clientById(b.client_id ?? "");
+  const redirect = String(b.redirect_uri ?? "");
+  checkRedirect(client, redirect);
+  const { count } = await admin().from("connected_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id);
+  if (!count) throw new HttpError(400, "Connect at least one calendar first");
+  const code = randomHex(24);
+  await admin().from("app_auth_codes").insert({
+    code_hash: await sha256Hex(code),
+    client_id: client.id,
+    user_id: user.id,
+    external_ref: optStr(b.external_ref, 200),
+    scopes: parseScopes(b.scope, client.allowed_scopes),
+    redirect_uri: redirect,
+    expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
+  });
+  const u = new URL(redirect);
+  u.searchParams.set("code", code);
+  if (b.state) u.searchParams.set("state", String(b.state).slice(0, 500));
+  return json({ redirect: u.toString() });
+});
+
+route("POST", "/apps/token", async (req) => {
+  const b = await body<{ client_id?: string; client_secret?: string; code?: string; redirect_uri?: string }>(req);
+  const client = await authClient(req, b);
+  const db = admin();
+  const { data: code } = await db.from("app_auth_codes").select("*").eq("code_hash", await sha256Hex(String(b.code ?? ""))).maybeSingle();
+  if (!code || code.client_id !== client.id || Date.parse(code.expires_at) < Date.now()) throw new HttpError(400, "Invalid or expired code");
+  if (b.redirect_uri && b.redirect_uri !== code.redirect_uri) throw new HttpError(400, "redirect_uri doesn't match");
+  await db.from("app_auth_codes").delete().eq("code_hash", code.code_hash);
+  const token = `kl_${randomHex(32)}`;
+  const { data: conn, error } = await db.from("app_connections").upsert({
+    client_id: client.id,
+    user_id: code.user_id,
+    external_ref: code.external_ref,
+    scopes: code.scopes,
+    token_hash: await sha256Hex(token),
+    last_push_hash: null,
+    last_push_error: null,
+  }, { onConflict: "client_id,user_id" }).select("*").single();
+  if (error) throw error;
+  const prof = await loadProfile(code.user_id);
+  background((async () => {
+    await ensureWatchesForUser(code.user_id);
+    await pushBusyForUser(code.user_id, { force: true });
+  })());
+  return json({
+    access_token: token,
+    token_type: "Bearer",
+    connection_id: conn.id,
+    scopes: conn.scopes,
+    external_ref: conn.external_ref,
+    user: { id: prof.id, email: prof.email, name: prof.full_name, timezone: prof.timezone, booking_page: `${env.siteUrl}/${prof.handle}` },
+  });
+});
+
+route("GET", "/apps/client", async (req) => {
+  const c = await authClient(req);
+  const { count } = await admin().from("app_connections").select("id", { count: "exact", head: true }).eq("client_id", c.id);
+  return json({ name: c.name, client_id: c.client_id, webhook_url: c.webhook_url, redirect_uris: c.redirect_uris, scopes: c.allowed_scopes, connections: count ?? 0 });
+});
+
+route("PATCH", "/apps/client", async (req) => {
+  const b = await body<{ client_id?: string; client_secret?: string; webhook_url?: string | null; redirect_uris?: string[] }>(req);
+  const c = await authClient(req, b);
+  const patch: Record<string, unknown> = {};
+  const isHttps = (u: string) => { try { return new URL(u).protocol === "https:"; } catch { return false; } };
+  if (b.webhook_url !== undefined) {
+    if (b.webhook_url !== null && !isHttps(b.webhook_url)) throw new HttpError(400, "webhook_url must be https");
+    patch.webhook_url = b.webhook_url;
+  }
+  if (b.redirect_uris !== undefined) {
+    if (!Array.isArray(b.redirect_uris) || !b.redirect_uris.every((u) => typeof u === "string" && isHttps(u))) throw new HttpError(400, "redirect_uris must be https URLs");
+    patch.redirect_uris = b.redirect_uris.slice(0, 10);
+  }
+  await admin().from("api_clients").update(patch).eq("id", c.id);
+  return json({ ok: true });
+});
+
+route("GET", "/apps/v1/me", async (req) => {
+  const conn = await authConnection(req);
+  const prof = await loadProfile(conn.user_id);
+  const { data: accs } = await admin().from("connected_accounts").select("provider,email,label,status").eq("user_id", conn.user_id);
+  return json({
+    connection_id: conn.id,
+    external_ref: conn.external_ref,
+    scopes: conn.scopes,
+    user: { id: prof.id, email: prof.email, name: prof.full_name, timezone: prof.timezone, booking_page: `${env.siteUrl}/${prof.handle}` },
+    calendars: (accs ?? []).map((a) => ({ provider: a.provider, email: a.email, label: a.label, ok: a.status === "active" })),
+  });
+});
+
+route("GET", "/apps/v1/busy", async (req, _p, url) => {
+  const conn = await authConnection(req, "busy.read");
+  const from = parseTime(url.searchParams.get("from"), Date.now());
+  const to = parseTime(url.searchParams.get("to"), from + 14 * 86400000);
+  if (to <= from || to - from > 92 * 86400000) throw new HttpError(400, "Range must be positive and at most 92 days");
+  const r = await mergedBusy(conn.user_id, from, to, url.searchParams.get("live") === "1");
+  return json({ from: new Date(from).toISOString(), to: new Date(to).toISOString(), busy: r.busy, calendar_errors: r.errors });
+});
+
+route("POST", "/apps/v1/sync", async (req) => {
+  const conn = await authConnection(req, "busy.read");
+  await clearBusyCache(conn.user_id);
+  const pushed = await pushBusyForUser(conn.user_id, { force: true });
+  return json({ ok: true, pushed });
+});
+
+route("POST", "/apps/v1/events", async (req) => {
+  const conn = await authConnection(req, "events.write");
+  const b = await body<{ title?: string; description?: string; start?: string; end?: string; attendees?: { email: string; name?: string }[]; video?: boolean; location?: string; calendar_email?: string }>(req);
+  const title = str(b.title, "title", 200);
+  const start = Date.parse(str(b.start, "start", 40));
+  const end = Date.parse(str(b.end, "end", 40));
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) throw new HttpError(400, "start and end must be ISO times with end after start");
+  const attendees = (Array.isArray(b.attendees) ? b.attendees : []).filter((a) => a && isEmail(String(a.email ?? ""))).slice(0, 50);
+  if (!attendees.length) throw new HttpError(400, "Add at least one attendee");
+  const db = admin();
+  const prof = await loadProfile(conn.user_id);
+  const { data: accs } = await db.from("connected_accounts").select("id,user_id,provider,email,label,color,status").eq("user_id", conn.user_id).order("created_at");
+  const acc = (b.calendar_email && accs?.find((a) => a.email === String(b.calendar_email).toLowerCase())) ||
+    accs?.find((a) => a.email === prof.email) || accs?.[0];
+  if (!acc) throw new HttpError(400, "This person has no connected calendar");
+  const [first, ...rest] = attendees;
+  const ev = await createEvent((acc as AccountRow).provider, await getAccessToken(acc as AccountRow), {
+    title,
+    description: optStr(b.description, 4000) ?? "",
+    start,
+    end,
+    hostTz: prof.timezone,
+    guestName: first.name ?? first.email,
+    guestEmail: first.email,
+    extraAttendees: rest.map((a) => ({ email: a.email, name: a.name ?? null })),
+    wantVideo: b.video !== false,
+    location: optStr(b.location, 300),
+    requestId: crypto.randomUUID(),
+  });
+  const { data: row } = await db.from("app_events").insert({ connection_id: conn.id, account_id: acc.id, provider_event_id: ev.eventId, meeting_url: ev.meetingUrl }).select("id").single();
+  background(onCalendarChanged(acc.id));
+  return json({ id: row?.id, calendar: acc.email, meeting_url: ev.meetingUrl });
+});
+
+route("DELETE", "/apps/v1/events/:id", async (req, p) => {
+  const conn = await authConnection(req, "events.write");
+  const db = admin();
+  const { data: e } = await db.from("app_events").select("*").eq("id", p.id).eq("connection_id", conn.id).maybeSingle();
+  if (!e) throw new HttpError(404, "Event not found");
+  const { data: acc } = e.account_id ? await db.from("connected_accounts").select("id,user_id,provider,email,label,color,status").eq("id", e.account_id).maybeSingle() : { data: null };
+  if (acc) await deleteEvent((acc as AccountRow).provider, await getAccessToken(acc as AccountRow), e.provider_event_id);
+  await db.from("app_events").delete().eq("id", e.id);
+  if (acc) background(onCalendarChanged(acc.id));
+  return json({ ok: true });
+});
+
+route("DELETE", "/apps/v1/connection", async (req) => {
+  const conn = await authConnection(req);
+  await admin().from("app_connections").delete().eq("id", conn.id);
+  const { count } = await admin().from("app_connections").select("id", { count: "exact", head: true }).eq("user_id", conn.user_id);
+  if (!count) background(dropWatchesForUser(conn.user_id));
+  return json({ ok: true });
+});
+
+// signed-in user: see and remove connected apps
+route("GET", "/me/apps", async (req) => {
+  const user = await requireUser(req);
+  const { data } = await admin().from("app_connections").select("id,scopes,created_at,last_used_at,last_pushed_at,last_push_error,api_clients(name)").eq("user_id", user.id).order("created_at");
+  return json({
+    apps: (data ?? []).map((c) => ({
+      id: c.id,
+      name: (c.api_clients as unknown as { name: string } | null)?.name ?? "App",
+      scopes: (c.scopes as string[]).map((s) => SCOPE_LABEL[s] ?? s),
+      connected_at: c.created_at,
+      last_synced_at: c.last_pushed_at ?? c.last_used_at,
+      sync_error: c.last_push_error,
+    })),
+  });
+});
+
+route("DELETE", "/me/apps/:id", async (req, p) => {
+  const user = await requireUser(req);
+  const db = admin();
+  const { data: conn } = await db.from("app_connections").select("*").eq("id", p.id).eq("user_id", user.id).maybeSingle();
+  if (!conn) throw new HttpError(404, "Not found");
+  await db.from("app_connections").delete().eq("id", conn.id);
+  background((async () => {
+    await notifyRevoked(conn as Connection);
+    const { count } = await db.from("app_connections").select("id", { count: "exact", head: true }).eq("user_id", user.id);
+    if (!count) await dropWatchesForUser(user.id);
+  })());
+  return json({ ok: true });
+});
+
+// change notifications from Google and Microsoft
+route("POST", "/hooks/google", async (req) => {
+  const channel = req.headers.get("x-goog-channel-id") ?? "";
+  const token = req.headers.get("x-goog-channel-token") ?? "";
+  const state = req.headers.get("x-goog-resource-state") ?? "";
+  const { data: w } = await admin().from("calendar_watches").select("account_id,token").eq("channel_id", channel).maybeSingle();
+  if (w && w.token === token && state !== "sync") background(onCalendarChanged(w.account_id));
+  return new Response(null, { status: 200 });
+});
+
+route("POST", "/hooks/microsoft", async (req, _p, url) => {
+  const validation = url.searchParams.get("validationToken");
+  if (validation) return new Response(validation, { status: 200, headers: { "content-type": "text/plain" } });
+  const b = await req.json().catch(() => ({ value: [] }));
+  const seen = new Set<string>();
+  for (const n of (b.value ?? []) as { subscriptionId?: string; clientState?: string }[]) {
+    if (!n.subscriptionId || seen.has(n.subscriptionId)) continue;
+    seen.add(n.subscriptionId);
+    const { data: w } = await admin().from("calendar_watches").select("account_id,token").eq("channel_id", n.subscriptionId).maybeSingle();
+    if (w && w.token === n.clientState) background(onCalendarChanged(w.account_id));
+  }
+  return new Response(null, { status: 202 });
+});
+
 route("POST", "/me/test-reminder", async (req) => {
   const user = await requireUser(req);
   const profile = await loadProfile(user.id);
@@ -1300,7 +1583,9 @@ route("POST", "/cron/reminders", async (req) => {
       .not("event", "is", null).lt("send_at", new Date(Date.now() - 86400000).toISOString());
   }
   const queued = await scanReminders();
-  return json({ queued, ...(await processOutbox()) });
+  const outbox = await processOutbox();
+  if (minute % 15 === 0) background(maintainConnections());
+  return json({ queued, ...outbox });
 });
 
 // ===================================================================================

@@ -191,6 +191,8 @@ export default function Settings() {
         <div><button className="btn primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button></div>
       </form>
 
+      <ConnectedApps />
+
       <div className="card stack" id="plan">
         <div className="spread">
           <h2>Plan</h2>
@@ -211,6 +213,51 @@ export default function Settings() {
           </div>
         )}
         <p className="small faint">Payments are handled securely by Stripe. Questions? <a href="mailto:contact@kairohr.co">contact@kairohr.co</a></p>
+      </div>
+    </div>
+  );
+}
+
+type ConnectedApp = { id: string; name: string; scopes: string[]; connected_at: string; last_synced_at: string | null; sync_error: string | null };
+
+function ConnectedApps() {
+  const { toast } = useApp();
+  const [apps, setApps] = useState<ConnectedApp[] | null>(null);
+  const load = () => api<{ apps: ConnectedApp[] }>("/me/apps").then((r) => setApps(r.apps)).catch(() => setApps([]));
+  useEffect(() => { load(); }, []);
+  if (!apps?.length) return null;
+
+  async function disconnect(a: ConnectedApp) {
+    if (!confirm(`Disconnect ${a.name}? It will stop seeing when you're busy.`)) return;
+    try {
+      await api(`/me/apps/${a.id}`, { method: "DELETE" });
+      toast(`${a.name} disconnected`);
+      load();
+    } catch (e) {
+      toast((e as Error).message);
+    }
+  }
+
+  return (
+    <div className="card stack">
+      <h2>Connected apps</h2>
+      <p className="small muted" style={{ margin: 0 }}>These apps use your combined calendar and get updates as soon as it changes. They only ever see busy times, never event details.</p>
+      <div className="list">
+        {apps.map((a) => (
+          <div className="list-item" key={a.id} style={{ flexWrap: "wrap", gap: 10 }}>
+            <div className="grow" style={{ minWidth: 220 }}>
+              <div style={{ fontWeight: 500 }}>{a.name}</div>
+              <div className="small faint">
+                Connected {new Date(a.connected_at).toLocaleDateString()}
+                {a.last_synced_at ? ` · last update ${new Date(a.last_synced_at).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}` : ""}
+              </div>
+              <ul className="small muted" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                {a.scopes.map((s) => <li key={s}>{s}</li>)}
+              </ul>
+            </div>
+            <button type="button" className="btn ghost sm" onClick={() => disconnect(a)}>Disconnect</button>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ const BookingPage = lazy(() => import("./pages/BookingPage"));
 const Manage = lazy(() => import("./pages/Manage"));
 const Legal = lazy(() => import("./pages/Legal"));
 const Invite = lazy(() => import("./pages/Invite"));
+const Connect = lazy(() => import("./pages/Connect"));
 
 export function Loading() {
   return <div className="loading" role="status"><div className="spinner" /><span className="sr-only">Loading</span></div>;
@@ -43,6 +44,7 @@ export default function App() {
           </Route>
           <Route path="/b/:token" element={<Manage />} />
           <Route path="/invite/:token" element={<Invite />} />
+          <Route path="/connect" element={<Connect />} />
           <Route path="/:handle" element={<PublicProfile />} />
           <Route path="/:handle/:slug" element={<BookingPage />} />
         </Routes>

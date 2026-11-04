@@ -16,7 +16,7 @@ export default function Login() {
 
   const next = (() => {
     const n = params.get("next") ?? "";
-    return /^\/(app|invite\/)[\w/#?=&-]*$/.test(n) ? n : null;
+    return /^\/(app|invite\/|connect\?)[\w/#?=&%.:+-]*$/.test(n) ? n : null;
   })();
   const wantsPremium = params.get("plan") === "premium";
   const target = next ?? (wantsPremium ? "/app/settings#plan" : "/app");
