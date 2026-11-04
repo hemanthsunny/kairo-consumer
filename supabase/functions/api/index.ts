@@ -69,28 +69,41 @@ async function confirmedBookings(userId: string, from: number, to: number) {
 
 // ---- group links ----
 
-const MAX_MEMBERS = 10;
-
 function displayName(p: { full_name: string | null; handle?: string; email: string | null }) {
   return p.full_name || p.email?.split("@")[0] || p.handle || "Someone";
 }
 
-async function activeMembers(linkId: string): Promise<{ id: string; user_id: string; name: string; email: string }[]> {
+type Person = { user_id: string; name: string; email: string };
+
+async function peopleFor(userIds: string[]): Promise<Person[]> {
+  if (!userIds.length) return [];
   const db = admin();
-  const { data } = await db.from("link_members").select("id,user_id").eq("link_id", linkId).eq("status", "active");
-  const ids = (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
-  if (!ids.length) return [];
   const [{ data: profs }, { data: accs }] = await Promise.all([
-    db.from("profiles").select("id,full_name,email,handle").in("id", ids),
-    db.from("connected_accounts").select("user_id,email,created_at").in("user_id", ids).order("created_at"),
+    db.from("profiles").select("id,full_name,email,handle").in("id", userIds),
+    db.from("connected_accounts").select("user_id,email,created_at").in("user_id", userIds).order("created_at"),
   ]);
-  return (data ?? []).filter((m) => m.user_id).map((m) => {
-    const p = (profs ?? []).find((x) => x.id === m.user_id);
-    const mine = (accs ?? []).filter((a) => a.user_id === m.user_id);
-    // invite goes to the calendar they sign in with, else their first connected calendar
+  return userIds.map((uid) => {
+    const p = (profs ?? []).find((x) => x.id === uid);
+    const mine = (accs ?? []).filter((a) => a.user_id === uid);
     const email = mine.find((a) => a.email === p?.email)?.email ?? mine[0]?.email ?? p?.email ?? "";
-    return { id: m.id, user_id: m.user_id as string, name: p ? displayName(p) : "Someone", email };
+    return { user_id: uid, name: p ? displayName(p) : "Someone", email };
   });
+}
+
+async function activeTeamUserIds(teamId: string): Promise<string[]> {
+  const { data } = await admin().from("team_members").select("user_id").eq("team_id", teamId).eq("status", "active");
+  return (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
+}
+
+/** Everyone on a team link apart from its creator (the host). Empty for personal links. */
+async function activeMembers(linkId: string): Promise<(Person & { id: string })[]> {
+  const { data: link } = await admin().from("links").select("user_id,team_id,attendee_ids").eq("id", linkId).maybeSingle();
+  if (!link?.team_id) return [];
+  const active = await activeTeamUserIds(link.team_id);
+  const ids = link.attendee_ids as string[] | null;
+  const chosen = ids?.length ? active.filter((u) => ids.includes(u)) : active;
+  const others = chosen.filter((u) => u !== link.user_id);
+  return (await peopleFor(others)).map((x) => ({ ...x, id: x.user_id }));
 }
 
 function joinNames(names: string[]) {
@@ -210,7 +223,7 @@ route("GET", "/oauth/:provider/callback", async (_req, p, url) => {
     }, { onConflict: "account_id,provider_calendar_id" }).select("id").single();
 
     // First calendar: create a ready-to-share link so the user has something on day one.
-    const { count: linkCount } = await db.from("links").select("id", { count: "exact", head: true }).eq("user_id", st.user_id);
+    const { count: linkCount } = await db.from("links").select("id", { count: "exact", head: true }).eq("user_id", st.user_id).is("team_id", null);
     if (!linkCount && cal) {
       await db.from("links").insert({
         user_id: st.user_id,
@@ -311,14 +324,28 @@ route("GET", "/me/events", async (req, _p, url) => {
 // ===================================================================================
 // Public booking page
 
+async function resolveHandle(handle: string) {
+  const db = admin();
+  const h = handle.toLowerCase();
+  const { data: profile } = await db.from("profiles").select("*").eq("handle", h).maybeSingle();
+  if (profile) return { profile: profile as Profile, team: null };
+  const { data: team } = await db.from("teams").select("*").eq("handle", h).maybeSingle();
+  if (!team) return null;
+  const { data: owner } = await db.from("profiles").select("*").eq("id", team.owner_id).single();
+  return { profile: owner as Profile, team: team as { id: string; name: string; handle: string } };
+}
+
 async function loadPublic(handle: string, slug: string) {
   const db = admin();
-  const { data: profile } = await db.from("profiles").select("*").eq("handle", handle.toLowerCase()).maybeSingle();
-  if (!profile) throw new HttpError(404, "This booking page doesn't exist");
-  const { data: link } = await db.from("links").select("*").eq("user_id", profile.id).eq("slug", slug.toLowerCase()).maybeSingle();
-  if (!link || !link.is_active) throw new HttpError(404, "This booking link isn't active");
-  if (effectivePlan(profile as Profile) === "inactive") throw new HttpError(403, "This booking page is paused");
-  return { profile: profile as Profile, link };
+  const r = await resolveHandle(handle);
+  if (!r) throw new HttpError(404, "This booking page doesn't exist");
+  let q = db.from("links").select("*").eq("slug", slug.toLowerCase());
+  q = r.team ? q.eq("team_id", r.team.id) : q.eq("user_id", r.profile.id).is("team_id", null);
+  const { data: link } = await q.maybeSingle();
+  if (!link || !link.is_active) throw new HttpError(404, "This booking link isn't open right now");
+  if (r.team && effectivePlan(r.profile) !== "premium") throw new HttpError(403, "This team's booking links are paused");
+  const host = r.team ? await loadProfile(link.user_id) : r.profile;
+  return { profile: host, link, team: r.team };
 }
 
 function locationLabel(link: Record<string, unknown>) {
@@ -333,31 +360,32 @@ function locationLabel(link: Record<string, unknown>) {
 
 route("GET", "/public/:handle", async (_req, p) => {
   const db = admin();
-  const { data: profile } = await db.from("profiles").select("id,handle,full_name,timezone,plan,trial_ends_at")
-    .eq("handle", p.handle.toLowerCase()).maybeSingle();
-  if (!profile) throw new HttpError(404, "This page doesn't exist");
-  const { data: links } = await db.from("links").select("id,slug,title,description,duration_min,location_type,location_value")
-    .eq("user_id", profile.id).eq("is_active", true).order("created_at");
-  const hostName = profile.full_name || profile.handle;
+  const r = await resolveHandle(p.handle);
+  if (!r) throw new HttpError(404, "This page doesn't exist");
+  let q = db.from("links").select("id,user_id,slug,title,description,duration_min,location_type,location_value")
+    .eq("is_active", true).order("created_at");
+  q = r.team ? q.eq("team_id", r.team.id) : q.eq("user_id", r.profile.id).is("team_id", null);
+  const { data: links } = await q;
+  const pageName = r.team ? r.team.name : (r.profile.full_name || r.profile.handle);
   const withPeople = await Promise.all((links ?? []).map(async (l) => {
     const members = await activeMembers(l.id);
+    const host = r.team ? (await peopleFor([l.user_id]))[0]?.name ?? pageName : pageName;
     return {
-      ...l,
-      id: undefined,
+      slug: l.slug, title: l.title, description: l.description, duration_min: l.duration_min,
       location: locationLabel(l),
-      location_value: undefined,
-      people: members.length ? [hostName, ...members.map((m) => m.name)] : [],
+      people: members.length ? [host, ...members.map((m) => m.name)] : [],
     };
   }));
   return json({
-    host: { name: hostName, handle: profile.handle, timezone: profile.timezone },
-    paused: effectivePlan(profile as Profile) === "inactive",
+    host: { name: pageName, handle: r.team ? r.team.handle : r.profile.handle, timezone: r.profile.timezone },
+    team: !!r.team,
+    paused: !!r.team && effectivePlan(r.profile) !== "premium",
     links: withPeople,
   });
 });
 
 route("GET", "/public/:handle/:slug", async (_req, p, url) => {
-  const { profile, link } = await loadPublic(p.handle, p.slug);
+  const { profile, link, team } = await loadPublic(p.handle, p.slug);
   const now = Date.now();
   const from = Math.max(Number(url.searchParams.get("from")) || now, now);
   const to = Math.min(Number(url.searchParams.get("to")) || from + 14 * 86400000, windowEnd(now, link.max_days_ahead));
@@ -381,7 +409,8 @@ route("GET", "/public/:handle/:slug", async (_req, p, url) => {
   }
   const hostName = profile.full_name || profile.handle;
   return json({
-    host: { name: hostName, handle: profile.handle, timezone: profile.timezone },
+    host: { name: team ? team.name : hostName, handle: team ? team.handle : profile.handle, timezone: profile.timezone },
+    team: !!team,
     people: members.length ? [hostName, ...members.map((m) => m.name)] : [],
     link: {
       slug: link.slug,
@@ -443,6 +472,8 @@ route("POST", "/public/:handle/:slug/book", async (req, p) => {
     end_at: new Date(end).toISOString(),
     meeting_url: link.location_type === "custom_url" ? link.location_value : null,
     location_text: location,
+    team_id: link.team_id ?? null,
+    attendee_user_ids: link.team_id ? [profile.id, ...members.map((m) => m.user_id)] : null,
   }).select("*").single();
   if (error) {
     if (error.code === "23P01") throw new HttpError(409, "Sorry, that time was just taken. Please pick another.");
@@ -554,9 +585,9 @@ async function cancelBooking(b: BookingRow & { write_account_id: string | null }
     cancelled_at: new Date().toISOString(),
   }).eq("id", b.id);
   const profile = await loadProfile(b.user_id);
-  const linkId = (b as unknown as { link_id: string | null }).link_id;
-  const members = linkId ? await activeMembers(linkId) : [];
-  await enqueueCancellation(profile, b, by, members.map((m) => m.user_id));
+  const extra = b as unknown as { attendee_user_ids: string[] | null; internal: boolean };
+  const others = (extra.attendee_user_ids ?? []).filter((u) => u !== b.user_id);
+  await enqueueCancellation(profile, b, by, others, extra.internal);
   await clearBusyCache(b.user_id);
   await processOutbox({ bookingId: b.id, attachIcs: !b.provider_event_id });
 }
@@ -582,156 +613,400 @@ route("POST", "/me/bookings/:id/cancel", async (req, p) => {
 });
 
 // Send yourself a test reminder on a channel
-async function ownLink(userId: string, linkId: string) {
-  const { data: link } = await admin().from("links").select("*").eq("id", linkId).eq("user_id", userId).maybeSingle();
-  if (!link) throw new HttpError(404, "Link not found");
-  return link;
-}
+// ===================================================================================
+// Teams: members with roles, shared booking links, internal "find a time" calls
 
-async function membersFor(linkId: string) {
+type Role = "owner" | "admin" | "member";
+const TEAM_MAX_MEMBERS = 10; // people besides the owner
+const HANDLE_RE = /^[a-z0-9][a-z0-9-]{2,30}$/;
+
+async function teamFor(userId: string, teamId: string, need: Role = "member") {
   const db = admin();
-  const { data } = await db.from("link_members").select("id,email,status,user_id,invited_at,joined_at").eq("link_id", linkId).order("invited_at");
-  const ids = (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
-  const { data: profs } = ids.length ? await db.from("profiles").select("id,full_name,email,handle").in("id", ids) : { data: [] };
-  return (data ?? []).map((m) => {
-    const p = (profs ?? []).find((x) => x.id === m.user_id);
-    return { id: m.id, email: m.email, status: m.status, name: p ? displayName(p) : null, joined_at: m.joined_at };
-  });
+  const { data: team } = await db.from("teams").select("*").eq("id", teamId).maybeSingle();
+  if (!team) throw new HttpError(404, "Team not found");
+  const { data: me } = await db.from("team_members").select("*").eq("team_id", teamId).eq("user_id", userId).eq("status", "active").maybeSingle();
+  if (!me) throw new HttpError(403, "You're not in this team");
+  const rank: Record<Role, number> = { member: 1, admin: 2, owner: 3 };
+  if (rank[me.role as Role] < rank[need]) throw new HttpError(403, need === "owner" ? "Only the team owner can do that" : "Only team admins can do that");
+  return { team, me: me as { id: string; role: Role } };
 }
 
-async function sendInvite(owner: Profile, link: Record<string, unknown>, email: string, token: string) {
-  const mail = renderInviteEmail(owner.full_name || owner.handle, link.title as string, link.duration_min as number, `${env.siteUrl}/invite/${token}`);
+function dbError(e: { code?: string; message?: string } | null, fallback = "Couldn't save") {
+  if (!e) return null;
+  if (e.code === "23505") return new HttpError(409, /handle|address/i.test(e.message ?? "") || /teams_handle/.test(e.message ?? "") ? "That address is taken. Try another." : "That address is already used in this team. Choose another.");
+  if (e.code === "23514") return new HttpError(400, "That address isn't available. Use 3–31 lowercase letters, numbers or dashes.");
+  return new HttpError(400, e.message ?? fallback);
+}
+
+async function teamMembersView(teamId: string) {
+  const db = admin();
+  const { data } = await db.from("team_members").select("id,email,user_id,role,status,invited_at,joined_at").eq("team_id", teamId).order("invited_at");
+  const ids = (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
+  const people = await peopleFor(ids);
+  const order: Record<string, number> = { owner: 0, admin: 1, member: 2 };
+  return (data ?? []).map((m) => ({
+    id: m.id,
+    email: m.email,
+    user_id: m.user_id,
+    role: m.role,
+    status: m.status,
+    name: people.find((p) => p.user_id === m.user_id)?.name ?? null,
+  })).sort((a, b) => order[a.role] - order[b.role] || (a.status === b.status ? 0 : a.status === "active" ? -1 : 1));
+}
+
+async function sendTeamInvite(inviter: Profile, team: { name: string }, email: string, token: string) {
+  const mail = renderInviteEmail(inviter.full_name || inviter.handle, team.name, `${env.siteUrl}/invite/${token}`);
   await sendEmail(email, mail.subject, mail.html, mail.text);
 }
 
-route("GET", "/me/links/:id/members", async (req, p) => {
+route("GET", "/me/teams", async (req) => {
   const user = await requireUser(req);
-  await ownLink(user.id, p.id);
-  return json({ members: await membersFor(p.id) });
+  const db = admin();
+  const { data: mine } = await db.from("team_members").select("team_id,role").eq("user_id", user.id).eq("status", "active");
+  const ids = (mine ?? []).map((m) => m.team_id);
+  if (!ids.length) return json({ teams: [] });
+  const [{ data: teams }, { data: members }, { data: links }] = await Promise.all([
+    db.from("teams").select("id,name,handle,owner_id,created_at").in("id", ids).order("created_at"),
+    db.from("team_members").select("team_id,status").in("team_id", ids).neq("status", "declined"),
+    db.from("links").select("team_id,is_active").in("team_id", ids),
+  ]);
+  return json({
+    teams: (teams ?? []).map((t) => ({
+      ...t,
+      role: mine?.find((m) => m.team_id === t.id)?.role,
+      members: (members ?? []).filter((m) => m.team_id === t.id && m.status === "active").length,
+      invited: (members ?? []).filter((m) => m.team_id === t.id && m.status === "invited").length,
+      open_links: (links ?? []).filter((l) => l.team_id === t.id && l.is_active).length,
+    })),
+  });
 });
 
-route("POST", "/me/links/:id/members", async (req, p) => {
+route("POST", "/me/teams", async (req) => {
   const user = await requireUser(req);
   const owner = await loadProfile(user.id);
-  const link = await ownLink(user.id, p.id);
-  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "Group links are part of Premium. Go Premium to add people to a link.");
-  const b = await body<{ emails?: unknown }>(req);
+  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "Teams are part of Premium. Go Premium to create a team.");
+  const b = await body<{ name?: string; handle?: string; description?: string }>(req);
+  const name = str(b.name, "Team name", 80);
+  const handle = str(b.handle, "Team address", 31).toLowerCase();
+  if (!HANDLE_RE.test(handle)) throw new HttpError(400, "Use 3–31 lowercase letters, numbers or dashes for the address");
+  const db = admin();
+  const { data: team, error } = await db.from("teams").insert({ owner_id: user.id, name, handle, description: optStr(b.description, 500) }).select("*").single();
+  const err = dbError(error);
+  if (err) throw err;
+  await db.from("team_members").insert({ team_id: team.id, email: (owner.email ?? `owner-${user.id}`).toLowerCase(), user_id: user.id, role: "owner", status: "active", joined_at: new Date().toISOString() });
+  return json({ team });
+});
+
+route("GET", "/me/teams/:id", async (req, p) => {
+  const user = await requireUser(req);
+  const { team, me } = await teamFor(user.id, p.id);
+  const db = admin();
+  const members = await teamMembersView(team.id);
+  const { data: links } = await db.from("links").select("*").eq("team_id", team.id).order("created_at");
+  const active = members.filter((m) => m.status === "active" && m.user_id).map((m) => m.user_id as string);
+  const { data: owner } = await db.from("profiles").select("plan,trial_ends_at").eq("id", team.owner_id).single();
+  return json({
+    team: { ...team, url: `${env.siteUrl}/${team.handle}` },
+    my_role: me.role,
+    owner_premium: owner ? effectivePlan(owner as Profile) === "premium" : false,
+    members,
+    links: (links ?? []).map((l) => {
+      const attending = (l.attendee_ids as string[] | null)?.length
+        ? active.filter((u) => (l.attendee_ids as string[]).includes(u) || u === l.user_id)
+        : active;
+      return { ...l, url: `${env.siteUrl}/${team.handle}/${l.slug}`, attending, mine: l.user_id === user.id };
+    }),
+  });
+});
+
+route("PATCH", "/me/teams/:id", async (req, p) => {
+  const user = await requireUser(req);
+  const b = await body<{ name?: string; handle?: string; description?: string | null }>(req);
+  const { team } = await teamFor(user.id, p.id, b.handle !== undefined ? "owner" : "admin");
+  const patch: Record<string, unknown> = {};
+  if (b.name !== undefined) patch.name = str(b.name, "Team name", 80);
+  if (b.description !== undefined) patch.description = optStr(b.description, 500);
+  if (b.handle !== undefined) {
+    const h = str(b.handle, "Team address", 31).toLowerCase();
+    if (!HANDLE_RE.test(h)) throw new HttpError(400, "Use 3–31 lowercase letters, numbers or dashes for the address");
+    patch.handle = h;
+  }
+  const { error } = await admin().from("teams").update(patch).eq("id", team.id);
+  const err = dbError(error);
+  if (err) throw err;
+  return json({ ok: true });
+});
+
+route("DELETE", "/me/teams/:id", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "owner");
+  await admin().from("teams").delete().eq("id", team.id);
+  return json({ ok: true });
+});
+
+route("POST", "/me/teams/:id/members", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "admin");
+  const inviter = await loadProfile(user.id);
+  const owner = await loadProfile(team.owner_id);
+  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "The team owner needs Premium to add people.");
+  const b = await body<{ emails?: unknown; role?: string }>(req);
+  const role = b.role === "admin" ? "admin" : "member";
   const raw = Array.isArray(b.emails) ? b.emails : [];
   const emails = Array.from(new Set(raw.map((e) => String(e).trim().toLowerCase()).filter(Boolean)));
   const bad = emails.find((e) => !isEmail(e));
   if (bad) throw new HttpError(400, `“${bad}” doesn't look like an email address`);
-  const { data: myAccounts } = await admin().from("connected_accounts").select("email").eq("user_id", user.id);
-  const mine = new Set([owner.email, ...(myAccounts ?? []).map((a) => a.email)].filter(Boolean));
-  const add = emails.filter((e) => !mine.has(e));
   const db = admin();
-  const { data: existing } = await db.from("link_members").select("id,email,status,invite_token").eq("link_id", link.id);
-  const current = (existing ?? []).filter((m) => m.status !== "declined");
-  const fresh = add.filter((e) => !current.some((m) => m.email === e));
-  if (current.length + fresh.length > MAX_MEMBERS) throw new HttpError(400, `A link can include up to ${MAX_MEMBERS} other people.`);
+  const { data: existing } = await db.from("team_members").select("id,email,status,user_id").eq("team_id", team.id);
+  const current = (existing ?? []).filter((m) => m.status !== "declined" && m.user_id !== team.owner_id);
+  const fresh = emails.filter((e) => !(existing ?? []).some((m) => m.email === e && m.status !== "declined"));
+  if (current.length + fresh.length > TEAM_MAX_MEMBERS) throw new HttpError(400, `A team can have up to ${TEAM_MAX_MEMBERS} people besides the owner.`);
   for (const email of fresh) {
     const prev = (existing ?? []).find((m) => m.email === email);
     const { data: row, error } = prev
-      ? await db.from("link_members").update({ status: "invited", user_id: null, invited_at: new Date().toISOString(), joined_at: null })
+      ? await db.from("team_members").update({ status: "invited", user_id: null, role, invited_by: user.id, invited_at: new Date().toISOString(), joined_at: null })
         .eq("id", prev.id).select("invite_token").single()
-      : await db.from("link_members").insert({ link_id: link.id, email }).select("invite_token").single();
+      : await db.from("team_members").insert({ team_id: team.id, email, role, invited_by: user.id }).select("invite_token").single();
     if (error) throw error;
     try {
-      await sendInvite(owner, link, email, row.invite_token);
+      await sendTeamInvite(inviter, team, email, row.invite_token);
     } catch (e) {
-      console.error("invite email", e);
+      console.error("team invite email", e);
     }
   }
-  return json({ members: await membersFor(link.id), added: fresh.length });
+  return json({ members: await teamMembersView(team.id), added: fresh.length });
 });
 
-route("POST", "/me/links/:id/members/:mid/resend", async (req, p) => {
+route("PATCH", "/me/teams/:id/members/:mid", async (req, p) => {
   const user = await requireUser(req);
-  const owner = await loadProfile(user.id);
-  const link = await ownLink(user.id, p.id);
-  const { data: m } = await admin().from("link_members").select("*").eq("id", p.mid).eq("link_id", link.id).maybeSingle();
+  const { team } = await teamFor(user.id, p.id, "owner");
+  const b = await body<{ role?: string }>(req);
+  const role = b.role === "admin" ? "admin" : "member";
+  const { data: m } = await admin().from("team_members").select("id,role").eq("id", p.mid).eq("team_id", team.id).maybeSingle();
+  if (!m) throw new HttpError(404, "Person not found");
+  if (m.role === "owner") throw new HttpError(400, "The owner's role can't be changed");
+  await admin().from("team_members").update({ role }).eq("id", m.id);
+  return json({ members: await teamMembersView(team.id) });
+});
+
+route("DELETE", "/me/teams/:id/members/:mid", async (req, p) => {
+  const user = await requireUser(req);
+  const db = admin();
+  const { team, me } = await teamFor(user.id, p.id);
+  const { data: m } = await db.from("team_members").select("id,role,user_id").eq("id", p.mid).eq("team_id", team.id).maybeSingle();
+  if (!m) throw new HttpError(404, "Person not found");
+  if (m.role === "owner") throw new HttpError(400, "The owner can't leave the team. Delete the team instead.");
+  const self = m.user_id === user.id;
+  const allowed = self || me.role === "owner" || (me.role === "admin" && m.role === "member");
+  if (!allowed) throw new HttpError(403, "You can't remove this person");
+  await db.from("team_members").delete().eq("id", m.id);
+  return json({ ok: true });
+});
+
+route("POST", "/me/teams/:id/members/:mid/resend", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "admin");
+  const { data: m } = await admin().from("team_members").select("*").eq("id", p.mid).eq("team_id", team.id).maybeSingle();
   if (!m) throw new HttpError(404, "Person not found");
   if (m.status === "active") return json({ ok: true });
-  await admin().from("link_members").update({ status: "invited" }).eq("id", m.id);
-  await sendInvite(owner, link, m.email, m.invite_token);
+  await admin().from("team_members").update({ status: "invited" }).eq("id", m.id);
+  await sendTeamInvite(await loadProfile(user.id), team, m.email, m.invite_token);
   return json({ ok: true });
 });
 
-route("DELETE", "/me/members/:mid", async (req, p) => {
+// team booking links (admins and owner)
+const LINK_FIELDS = ["slug", "title", "description", "duration_min", "buffer_before_min", "buffer_after_min", "min_notice_min",
+  "max_days_ahead", "daily_limit", "slot_step_min", "location_type", "location_value", "weekly_hours", "is_active", "expires_at", "attendee_ids"] as const;
+
+function pickLinkFields(b: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const k of LINK_FIELDS) if (k in b) out[k] = b[k];
+  if (typeof out.slug === "string") out.slug = (out.slug as string).toLowerCase();
+  if (out.attendee_ids !== undefined && out.attendee_ids !== null && !Array.isArray(out.attendee_ids)) throw new HttpError(400, "Invalid attendees");
+  return out;
+}
+
+async function checkWriteCalendar(ownerId: string, calId: unknown) {
+  if (calId === null || calId === undefined || calId === "") return null;
+  const { data } = await admin().from("calendars").select("id").eq("id", String(calId)).eq("user_id", ownerId).maybeSingle();
+  if (!data) throw new HttpError(400, "Choose one of your own calendars to add bookings to");
+  return data.id as string;
+}
+
+route("POST", "/me/teams/:id/links", async (req, p) => {
   const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "admin");
+  const b = await body<Record<string, unknown>>(req);
+  const row = pickLinkFields(b);
+  row.write_calendar_id = await checkWriteCalendar(user.id, b.write_calendar_id);
+  const { data, error } = await admin().from("links").insert({ ...row, user_id: user.id, team_id: team.id }).select("id").single();
+  const err = dbError(error);
+  if (err) throw err;
+  return json({ id: data?.id });
+});
+
+route("PATCH", "/me/teams/:id/links/:lid", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "admin");
   const db = admin();
-  const { data: m } = await db.from("link_members").select("id,user_id,link_id").eq("id", p.mid).maybeSingle();
-  if (!m) throw new HttpError(404, "Not found");
-  const { data: link } = await db.from("links").select("user_id").eq("id", m.link_id).maybeSingle();
-  if (m.user_id !== user.id && link?.user_id !== user.id) throw new HttpError(403, "You can't change this link");
-  await db.from("link_members").delete().eq("id", m.id);
+  const { data: link } = await db.from("links").select("id,user_id").eq("id", p.lid).eq("team_id", team.id).maybeSingle();
+  if (!link) throw new HttpError(404, "Link not found");
+  const b = await body<Record<string, unknown>>(req);
+  const row = pickLinkFields(b);
+  if ("write_calendar_id" in b) row.write_calendar_id = await checkWriteCalendar(link.user_id, b.write_calendar_id);
+  const { error } = await db.from("links").update(row).eq("id", link.id);
+  const err = dbError(error);
+  if (err) throw err;
   return json({ ok: true });
 });
 
-route("GET", "/me/shared-links", async (req) => {
+route("DELETE", "/me/teams/:id/links/:lid", async (req, p) => {
   const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id, "admin");
+  await admin().from("links").delete().eq("id", p.lid).eq("team_id", team.id);
+  return json({ ok: true });
+});
+
+// find a time among team members (any member)
+const FIND_HOURS: LinkRules["weeklyHours"] = {
+  mon: [["08:00", "18:00"]], tue: [["08:00", "18:00"]], wed: [["08:00", "18:00"]], thu: [["08:00", "18:00"]], fri: [["08:00", "18:00"]], sat: [], sun: [],
+};
+
+async function teamCallPeople(userId: string, teamId: string, memberIds: unknown) {
+  const active = await activeTeamUserIds(teamId);
+  const chosen = Array.isArray(memberIds) ? memberIds.map(String).filter((u) => active.includes(u) && u !== userId) : [];
+  if (!chosen.length) throw new HttpError(400, "Pick at least one teammate");
+  return chosen;
+}
+
+route("POST", "/me/teams/:id/availability", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id);
+  const me = await loadProfile(user.id);
+  const b = await body<{ member_ids?: unknown; duration_min?: number; days?: number }>(req);
+  const others = await teamCallPeople(user.id, team.id, b.member_ids);
+  const duration = Math.min(240, Math.max(15, Number(b.duration_min) || 30));
+  const days = Math.min(21, Math.max(1, Number(b.days) || 10));
+  const now = Date.now();
+  const to = now + days * 86400000;
+  const g = await groupBusy(user.id, others, now - 86400000, to + 86400000, true);
+  const slots = generateSlots({
+    now,
+    hostTz: me.timezone,
+    rules: { durationMin: duration, bufferBeforeMin: 0, bufferAfterMin: 0, minNoticeMin: 30, maxDaysAhead: days, dailyLimit: null, slotStepMin: 30, weeklyHours: FIND_HOURS },
+    busy: g.busy,
+    linkBookings: [],
+    from: now,
+    to,
+  });
+  return json({ slots: slots.map((s) => new Date(s).toISOString()), timezone: me.timezone, degraded: g.degraded });
+});
+
+route("POST", "/me/teams/:id/schedule", async (req, p) => {
+  const user = await requireUser(req);
+  const { team } = await teamFor(user.id, p.id);
+  const me = await loadProfile(user.id);
+  const b = await body<{ member_ids?: unknown; start?: string; duration_min?: number; title?: string; description?: string; video?: boolean }>(req);
+  const others = await teamCallPeople(user.id, team.id, b.member_ids);
+  const start = Date.parse(str(b.start, "Time", 40));
+  if (!Number.isFinite(start) || start < Date.now()) throw new HttpError(400, "Pick a time in the future");
+  const duration = Math.min(240, Math.max(15, Number(b.duration_min) || 30));
+  const end = start + duration * 60000;
+  const title = str(b.title, "Title", 120);
+  const description = optStr(b.description, 2000);
+
+  const g = await groupBusy(user.id, others, start - 3600000, end + 3600000, true);
+  if (g.busy.some((x) => x.start < end && x.end > start)) throw new HttpError(409, "Someone just got busy at that time. Please pick another.");
+
   const db = admin();
-  const { data: rows } = await db.from("link_members").select("id,link_id,joined_at").eq("user_id", user.id).eq("status", "active");
-  const out = [];
-  for (const r of rows ?? []) {
-    const { data: link } = await db.from("links").select("id,user_id,slug,title,description,duration_min,is_active").eq("id", r.link_id).maybeSingle();
-    if (!link) continue;
-    const { data: owner } = await db.from("profiles").select("full_name,handle,email").eq("id", link.user_id).single();
-    const members = await activeMembers(link.id);
-    const ownerName = owner ? displayName(owner) : "Someone";
-    out.push({
-      member_id: r.id,
-      title: link.title,
-      description: link.description,
-      duration_min: link.duration_min,
-      is_active: link.is_active,
-      owner: ownerName,
-      url: `${env.siteUrl}/${owner?.handle}/${link.slug}`,
-      people: [ownerName, ...members.map((m) => m.name)],
-    });
+  const { data: cal } = await db.from("calendars").select("id, connected_accounts(id,user_id,provider,email,label,color,status)")
+    .eq("user_id", user.id).eq("can_write", true).order("created_at").limit(1).maybeSingle();
+  const acc = cal?.connected_accounts as unknown as AccountRow | undefined;
+  if (!acc) throw new HttpError(400, "Connect a calendar first so the invite can be sent from it");
+  const people = await peopleFor(others);
+  const [first, ...rest] = people;
+
+  const { data: booking, error } = await db.from("bookings").insert({
+    user_id: user.id,
+    team_id: team.id,
+    internal: true,
+    title,
+    guest_name: team.name,
+    guest_email: (me.email ?? acc.email).toLowerCase(),
+    guest_note: description,
+    start_at: new Date(start).toISOString(),
+    end_at: new Date(end).toISOString(),
+    attendee_user_ids: [user.id, ...others],
+  }).select("*").single();
+  if (error) {
+    if (error.code === "23P01") throw new HttpError(409, "You already have a booking at that time");
+    throw error;
   }
-  return json({ links: out });
+  try {
+    const token = await getAccessToken(acc);
+    const ev = await createEvent(acc.provider, token, {
+      title,
+      description: [description ?? "", `${team.name} · scheduled with ${env.productName}`].filter(Boolean).join("\n\n"),
+      start,
+      end,
+      hostTz: me.timezone,
+      guestName: first.name,
+      guestEmail: first.email,
+      extraAttendees: rest.filter((x) => x.email).map((x) => ({ email: x.email, name: x.name })),
+      wantVideo: b.video !== false,
+      location: null,
+      requestId: booking.id,
+    });
+    await db.from("bookings").update({ provider_event_id: ev.eventId, meeting_url: ev.meetingUrl, write_account_id: acc.id, write_calendar_provider_id: "primary" })
+      .eq("id", booking.id);
+    for (const u of [user.id, ...others]) await clearBusyCache(u);
+    return json({ ok: true, meeting_url: ev.meetingUrl, when: fmtWhen(booking.start_at, me.timezone).full });
+  } catch (e) {
+    await db.from("bookings").delete().eq("id", booking.id);
+    throw new HttpError(502, `Couldn't add the call to your calendar: ${e instanceof Error ? e.message : "unknown error"}`);
+  }
 });
 
+// invites
 route("GET", "/invites/:token", async (_req, p) => {
   const db = admin();
-  const { data: m } = await db.from("link_members").select("*").eq("invite_token", p.token).maybeSingle();
-  if (!m) throw new HttpError(404, "This invite link isn't valid any more. Ask for a new one.");
-  const { data: link } = await db.from("links").select("id,user_id,title,description,duration_min").eq("id", m.link_id).maybeSingle();
-  if (!link) throw new HttpError(404, "This call link has been deleted.");
-  const { data: owner } = await db.from("profiles").select("full_name,handle,email").eq("id", link.user_id).single();
-  const members = await activeMembers(link.id);
+  const { data: m } = await db.from("team_members").select("*").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite isn't valid any more. Ask for a new one.");
+  const { data: team } = await db.from("teams").select("*").eq("id", m.team_id).maybeSingle();
+  if (!team) throw new HttpError(404, "This team has been deleted.");
+  const { data: inviter } = await db.from("profiles").select("full_name,handle,email").eq("id", m.invited_by ?? team.owner_id).maybeSingle();
+  const active = await activeTeamUserIds(team.id);
   return json({
     email: m.email,
     status: m.status,
+    role: m.role,
     joined_user_id: m.user_id,
-    owner: owner ? displayName(owner) : "Someone",
-    owner_user_id: link.user_id,
-    link: { title: link.title, description: link.description, duration_min: link.duration_min },
-    people: members.map((x) => x.name),
+    inviter: inviter ? displayName(inviter) : "Someone",
+    team: { id: team.id, name: team.name, handle: team.handle, description: team.description },
+    people: (await peopleFor(active)).map((x) => x.name),
+    member_user_ids: active,
   });
 });
 
 route("POST", "/invites/:token/accept", async (req, p) => {
   const user = await requireUser(req);
   const db = admin();
-  const { data: m } = await db.from("link_members").select("*").eq("invite_token", p.token).maybeSingle();
-  if (!m) throw new HttpError(404, "This invite link isn't valid any more. Ask for a new one.");
-  const { data: link } = await db.from("links").select("user_id").eq("id", m.link_id).maybeSingle();
-  if (!link) throw new HttpError(404, "This call link has been deleted.");
-  if (link.user_id === user.id) throw new HttpError(400, "This is your own link.");
+  const { data: m } = await db.from("team_members").select("*").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite isn't valid any more. Ask for a new one.");
   if (m.status === "active" && m.user_id && m.user_id !== user.id) throw new HttpError(409, "Someone has already joined with this invite.");
   const { count } = await db.from("connected_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id);
-  if (!count) throw new HttpError(400, "Connect a calendar first, so people only see times when you're free.");
-  const { data: dup } = await db.from("link_members").select("id").eq("link_id", m.link_id).eq("user_id", user.id).neq("id", m.id).maybeSingle();
-  if (dup) await db.from("link_members").delete().eq("id", m.id);
-  else await db.from("link_members").update({ user_id: user.id, status: "active", joined_at: new Date().toISOString() }).eq("id", m.id);
-  return json({ ok: true });
+  if (!count) throw new HttpError(400, "Connect a calendar first, so your team only books you when you're free.");
+  const { data: dup } = await db.from("team_members").select("id").eq("team_id", m.team_id).eq("user_id", user.id).neq("id", m.id).maybeSingle();
+  if (dup) await db.from("team_members").delete().eq("id", m.id);
+  else await db.from("team_members").update({ user_id: user.id, status: "active", joined_at: new Date().toISOString() }).eq("id", m.id);
+  return json({ ok: true, team_id: m.team_id });
 });
 
 route("POST", "/invites/:token/decline", async (_req, p) => {
-  const { data: m } = await admin().from("link_members").select("id,status").eq("invite_token", p.token).maybeSingle();
-  if (!m) throw new HttpError(404, "This invite link isn't valid any more.");
-  await admin().from("link_members").update({ status: "declined", user_id: null, joined_at: null }).eq("id", m.id);
+  const { data: m } = await admin().from("team_members").select("id,role").eq("invite_token", p.token).maybeSingle();
+  if (!m) throw new HttpError(404, "This invite isn't valid any more.");
+  if (m.role === "owner") throw new HttpError(400, "The owner can't decline their own team.");
+  await admin().from("team_members").update({ status: "declined", user_id: null, joined_at: null }).eq("id", m.id);
   return json({ ok: true });
 });
 
@@ -955,23 +1230,20 @@ async function scanReminders() {
           });
         }
       }
-      // bookings on group links this person has joined
-      const { data: memberOf } = await db.from("link_members").select("link_id").eq("user_id", profile.id).eq("status", "active");
-      if (memberOf?.length) {
-        const { data: groupBookings } = await db.from("bookings").select("id,start_at,provider_event_id")
-          .in("link_id", memberOf.map((m) => m.link_id)).eq("status", "confirmed")
-          .gt("start_at", new Date(from).toISOString()).lte("start_at", new Date(to).toISOString());
-        for (const b of groupBookings ?? []) {
-          (bookings ?? []).push(b);
-          const start = Date.parse(b.start_at);
-          for (const ch of channels) for (const off of prefs[ch]) {
-            if (!due(start, off)) continue;
-            rows.push({
-              user_id: profile.id, booking_id: b.id, recipient: "host", channel: ch, kind: "reminder", offset_min: off,
-              send_at: new Date(start - off * 60000).toISOString(),
-              dedupe_key: `r:${b.id}:${profile.id}:${ch}:${off}`,
-            });
-          }
+      // team bookings (booking links and internal calls) this person attends
+      const { data: teamBookings } = await db.from("bookings").select("id,start_at,provider_event_id")
+        .contains("attendee_user_ids", [profile.id]).neq("user_id", profile.id).eq("status", "confirmed")
+        .gt("start_at", new Date(from).toISOString()).lte("start_at", new Date(to).toISOString());
+      for (const b of teamBookings ?? []) {
+        (bookings ?? []).push(b);
+        const start = Date.parse(b.start_at);
+        for (const ch of channels) for (const off of prefs[ch]) {
+          if (!due(start, off)) continue;
+          rows.push({
+            user_id: profile.id, booking_id: b.id, recipient: "host", channel: ch, kind: "reminder", offset_min: off,
+            send_at: new Date(start - off * 60000).toISOString(),
+            dedupe_key: `r:${b.id}:${profile.id}:${ch}:${off}`,
+          });
         }
       }
 

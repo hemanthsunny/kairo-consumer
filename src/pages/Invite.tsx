@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
-import { durationLabel } from "../lib/time";
 import { GoogleLogo, MicrosoftLogo } from "../components/Icons";
 import { Loading } from "../App";
 import { AvatarStack, joinNames } from "./BookingPage";
@@ -11,11 +10,12 @@ import { AvatarStack, joinNames } from "./BookingPage";
 interface InviteInfo {
   email: string;
   status: "invited" | "active" | "declined";
+  role: "owner" | "admin" | "member";
   joined_user_id: string | null;
-  owner: string;
-  owner_user_id: string;
-  link: { title: string; description: string | null; duration_min: number };
+  inviter: string;
+  team: { id: string; name: string; handle: string; description: string | null };
   people: string[];
+  member_user_ids: string[];
 }
 
 export default function Invite() {
@@ -51,10 +51,10 @@ export default function Invite() {
   }
 
   const me = session?.user.id;
-  const isOwner = me === info.owner_user_id;
-  const alreadyIn = info.status === "active" && info.joined_user_id === me;
+  const alreadyIn = !!me && info.member_user_ids.includes(me);
+  const isOwner = false;
   const signedInAs = session?.user.email ?? null;
-  const everyone = [info.owner, ...info.people];
+  const everyone = info.people.length ? info.people : [info.team.name];
 
   async function connect(provider: "google" | "microsoft") {
     setBusy(provider);
@@ -83,7 +83,7 @@ export default function Invite() {
   }
 
   async function decline() {
-    if (!confirm(`Decline ${info?.owner}'s invite?`)) return;
+    if (!confirm(`Decline the invite to ${info?.team.name}?`)) return;
     setBusy("decline");
     try {
       await api(`/invites/${token}/decline`, { method: "POST", auth: false });
@@ -100,28 +100,39 @@ export default function Invite() {
         <Link to="/" className="brand" style={{ padding: 0 }}><img src="/favicon.svg" alt="" />Kairo Link</Link>
         <div className="stack" style={{ gap: 10 }}>
           <AvatarStack names={everyone} />
-          <h1 style={{ fontSize: 22 }}>{info.owner} added you to “{info.link.title}”</h1>
+          <h1 style={{ fontSize: 22 }}>Join {info.team.name}</h1>
           <p className="muted small">
-            {durationLabel(info.link.duration_min)} call{info.people.length ? ` with ${joinNames(everyone)}` : ""}. People can only book times when you're all free, and each booking goes straight into your calendar.
+            {info.inviter} invited you{info.role === "admin" ? " as an admin" : ""}. {info.people.length ? `${joinNames(info.people)} ${info.people.length === 1 ? "is" : "are"} already in. ` : ""}
+            Once you join, clients can book calls with you through the team's links, and you can find times that work for everyone — every booking lands in your calendar.
           </p>
-          {info.link.description && <p className="small" style={{ whiteSpace: "pre-line" }}>{info.link.description}</p>}
-          <p className="small faint">Only your busy times are shared — never your event titles or details.</p>
+          {info.team.description && <p className="small" style={{ whiteSpace: "pre-line" }}>{info.team.description}</p>}
+          <p className="small faint">Only your busy times are shared with the team — never your event titles or details.</p>
         </div>
 
         {error && <div className="alert error" role="alert">{error}</div>}
 
-        {done === "joined" || alreadyIn ? (
+        {alreadyIn && info.status !== "active" && done !== "joined" ? (
           <div className="stack">
-            <div className="alert success" role="status">You're in. Bookings on “{info.link.title}” will show up in your calendar.</div>
-            <button className="btn primary lg block" onClick={() => nav("/app/links")}>Open Kairo Link</button>
+            <div className="alert info">
+              You're already in {info.team.name}. This invite is for <strong>{info.email}</strong> — they'll see a Join button when they open it.
+              To test it yourself, open this link in a private window.
+            </div>
+            <div className="row wrap">
+              <button className="btn" onClick={() => navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true), () => undefined)}>{copied ? "Copied" : "Copy invite link"}</button>
+              <button className="btn ghost" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the team</button>
+            </div>
+          </div>
+        ) : done === "joined" || alreadyIn ? (
+          <div className="stack">
+            <div className="alert success" role="status">You're in {info.team.name}. Team bookings will show up in your calendar.</div>
+            <button className="btn primary lg block" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the team</button>
           </div>
         ) : done === "declined" ? (
-          <div className="alert info" role="status">Invite declined. {info.owner} won't be able to add you unless they invite you again.</div>
+          <div className="alert info" role="status">Invite declined. You won't be added unless someone invites you again.</div>
         ) : isOwner ? (
           <div className="stack">
             <div className="alert info">
-              You're signed in as the organiser, so there's nothing to accept here. This page is for <strong>{info.email}</strong> — they'll see a Join button when they open it.
-              To try it yourself, open this link in a private window and sign in as {info.email}.
+              You're already in this team. This invite is for <strong>{info.email}</strong> — they'll see a Join button when they open it.
             </div>
             <div className="row wrap">
               <button className="btn" onClick={() => navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true), () => undefined)}>{copied ? "Copied" : "Copy invite link"}</button>
@@ -150,7 +161,7 @@ export default function Invite() {
             {signedInAs && signedInAs.toLowerCase() !== info.email && (
               <p className="small muted">Invite sent to {info.email} — you're signed in as {signedInAs}. That's fine if it's also you.</p>
             )}
-            <button className="btn primary lg block" onClick={accept} disabled={!!busy}>{busy === "accept" ? "Joining…" : `Join “${info.link.title}”`}</button>
+            <button className="btn primary lg block" onClick={accept} disabled={!!busy}>{busy === "accept" ? "Joining…" : `Join ${info.team.name}`}</button>
             <p className="small faint">All {calendars} of your connected calendar{calendars === 1 ? "" : "s"} will be checked for clashes. You can change this in Calendars.</p>
             <button className="btn ghost sm" onClick={decline} disabled={!!busy}>Decline invite</button>
           </div>

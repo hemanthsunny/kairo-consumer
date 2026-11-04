@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation } from "react-router-dom";
 import { Loading } from "../App";
-import { IconCalendar, IconHome, IconLink, IconList, IconSettings } from "../components/Icons";
+import { IconCalendar, IconHome, IconLink, IconList, IconSettings, IconUsers } from "../components/Icons";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import { AppCtx, effectivePlan, useAppLoader, useToast } from "./data";
@@ -10,6 +10,7 @@ const NAV = [
   { to: "/app", label: "Today", icon: IconHome, end: true },
   { to: "/app/calendars", label: "Calendars", icon: IconCalendar },
   { to: "/app/links", label: "Links", icon: IconLink },
+  { to: "/app/teams", label: "Teams", icon: IconUsers },
   { to: "/app/bookings", label: "Bookings", icon: IconList },
   { to: "/app/settings", label: "Settings", icon: IconSettings },
 ];

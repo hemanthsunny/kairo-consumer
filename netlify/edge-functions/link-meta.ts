@@ -6,7 +6,7 @@ const API = "https://aqzbnqbuxvbgwtendieh.supabase.co/functions/v1/api";
 const RESERVED = new Set(["app", "b", "api", "login", "privacy", "terms", "assets", "invite"]);
 
 type PublicLink = { slug: string; title: string; description: string | null; duration_min: number; location: string | null; people?: string[] };
-type PublicProfile = { host: { name: string; handle: string }; paused: boolean; links: PublicLink[] };
+type PublicProfile = { host: { name: string; handle: string }; team?: boolean; paused: boolean; links: PublicLink[] };
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -50,7 +50,7 @@ export default async (req: Request, context: Context) => {
       ? clip(`${link.description} — ${bits}`, 200)
       : `${bits}. Pick a time that suits you — times show in your time zone and the invite lands straight in your calendar.`;
   } else {
-    title = `Book time with ${name}`;
+    title = data.team ? `Book a call with ${name}` : `Book time with ${name}`;
     description = data.links.length
       ? clip(`Choose a meeting: ${data.links.map((l) => `${l.title} (${duration(l.duration_min)})`).join(", ")}.`, 200)
       : `See when ${name} is free and book a time.`;

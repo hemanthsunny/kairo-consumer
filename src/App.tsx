@@ -10,6 +10,8 @@ const Calendars = lazy(() => import("./app/Calendars"));
 const Links = lazy(() => import("./app/Links"));
 const Bookings = lazy(() => import("./app/Bookings"));
 const Settings = lazy(() => import("./app/Settings"));
+const Teams = lazy(() => import("./app/Teams"));
+const TeamPage = lazy(() => import("./app/TeamPage"));
 const PublicProfile = lazy(() => import("./pages/PublicProfile"));
 const BookingPage = lazy(() => import("./pages/BookingPage"));
 const Manage = lazy(() => import("./pages/Manage"));
@@ -35,6 +37,8 @@ export default function App() {
             <Route path="links" element={<Links />} />
             <Route path="bookings" element={<Bookings />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="teams" element={<Teams />} />
+            <Route path="teams/:id" element={<TeamPage />} />
             <Route path="*" element={<Navigate to="/app" replace />} />
           </Route>
           <Route path="/b/:token" element={<Manage />} />

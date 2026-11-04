@@ -124,14 +124,14 @@ export async function enqueueForBooking(profile: Profile, b: BookingRow, memberI
   if (rows.length) await admin().from("notification_outbox").upsert(rows, { onConflict: "dedupe_key", ignoreDuplicates: true });
 }
 
-export async function enqueueCancellation(profile: Profile, b: BookingRow, by: "host" | "guest", memberIds: string[] = []) {
+export async function enqueueCancellation(profile: Profile, b: BookingRow, by: "host" | "guest", memberIds: string[] = [], internal = false) {
   const db = admin();
   await db.from("notification_outbox").update({ status: "skipped", last_error: "Booking cancelled" })
     .eq("booking_id", b.id).eq("status", "pending");
   const now = new Date().toISOString();
-  const rows = [
+  const rows = (internal ? [] : [
     { recipient: by === "host" ? "guest" : "host", channel: "email" },
-  ].map((r) => ({
+  ]).map((r) => ({
     ...r,
     user_id: profile.id,
     booking_id: b.id,
@@ -247,20 +247,20 @@ export function renderEventShort(profile: Profile, ev: EventSnapshot, offsetMin:
   return `${offsetLabel(offsetMin)}: ${ev.title}\n${w.full}${where ? `\nJoin: ${where}` : ""}`;
 }
 
-export function renderInviteEmail(ownerName: string, linkTitle: string, durationMin: number, url: string) {
-  const subject = `${ownerName} added you to “${linkTitle}”`;
+export function renderInviteEmail(inviterName: string, teamName: string, url: string) {
+  const subject = `${inviterName} invited you to join ${teamName} on ${env.productName}`;
   const html = `<!doctype html><html><body style="margin:0;background:#f6f7fb;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827">
 <div style="max-width:520px;margin:0 auto;padding:32px 20px">
 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px">
 <p style="margin:0 0 4px;font-size:13px;color:#6b7280">${escapeHtml(env.productName)}</p>
-<h1 style="margin:0 0 14px;font-size:20px;font-weight:600">${escapeHtml(subject)}</h1>
-<p style="margin:0 0 10px;font-size:15px;line-height:1.5">“${escapeHtml(linkTitle)}” is a ${durationMin}-minute call that people book with you together. Join once and connect your calendar: people will only be offered times when you're all free, and every booking lands in your calendar automatically.</p>
-<p style="margin:0 0 22px;font-size:14px;color:#6b7280">Only your busy times are shared, never your event details.</p>
-<a href="${escapeHtml(url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:500">Join the call link</a>
+<h1 style="margin:0 0 14px;font-size:20px;font-weight:600">Join ${escapeHtml(teamName)}</h1>
+<p style="margin:0 0 10px;font-size:15px;line-height:1.5">${escapeHtml(inviterName)} invited you to the ${escapeHtml(teamName)} team. Join once with your calendar and you'll be able to share the team's booking links and find times that work for everyone — clients only see slots when the people on the call are free, and every booking lands in your calendar.</p>
+<p style="margin:0 0 22px;font-size:14px;color:#6b7280">Only your busy times are shared with the team, never your event details.</p>
+<a href="${escapeHtml(url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:500">Join ${escapeHtml(teamName)}</a>
 </div>
 <p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:16px">Not expecting this? You can ignore it, or decline from the link above.</p>
 </div></body></html>`;
-  const text = `${subject}\n\nJoin once and connect your calendar, so people only book when you're all free:\n${url}\n`;
+  const text = `${subject}\n\nJoin once with your calendar:\n${url}\n`;
   return { subject, html, text };
 }
 

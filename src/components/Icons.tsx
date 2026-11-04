@@ -30,6 +30,7 @@ export const IconArrowLeft = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><
 export const IconChevron = (p: SVGProps<SVGSVGElement> & { dir?: "left" | "right" }) => (
   <svg {...base(p)}><path d={p.dir === "left" ? "m15 18-6-6 6-6" : "m9 18 6-6-6-6"} /></svg>
 );
+export const IconUsers = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14.5a6.5 6.5 0 0 1 3.5 5.5" /></svg>;
 export const IconPlus = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M12 5v14M5 12h14" /></svg>;
 export const IconRefresh = (p: SVGProps<SVGSVGElement>) => <svg {...base(p)}><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" /></svg>;
 

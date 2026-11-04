@@ -72,6 +72,9 @@ export interface LinkRow {
   weekly_hours: WeeklyHours;
   is_active: boolean;
   expires_at?: string | null;
+  user_id?: string;
+  team_id?: string | null;
+  attendee_ids?: string[] | null;
   created_at: string;
 }
 
