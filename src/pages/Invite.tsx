@@ -28,6 +28,7 @@ export default function Invite() {
   const [error, setError] = useState<string | null>(params.get("error"));
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<"joined" | "declined" | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api<InviteInfo>(`/invites/${token}`, { auth: false }).then(setInfo).catch((e) => setError(e.message));
@@ -52,6 +53,7 @@ export default function Invite() {
   const me = session?.user.id;
   const isOwner = me === info.owner_user_id;
   const alreadyIn = info.status === "active" && info.joined_user_id === me;
+  const signedInAs = session?.user.email ?? null;
   const everyone = [info.owner, ...info.people];
 
   async function connect(provider: "google" | "microsoft") {
@@ -116,7 +118,16 @@ export default function Invite() {
         ) : done === "declined" ? (
           <div className="alert info" role="status">Invite declined. {info.owner} won't be able to add you unless they invite you again.</div>
         ) : isOwner ? (
-          <div className="alert info">This is your own link. Share this invite with the person you added.</div>
+          <div className="stack">
+            <div className="alert info">
+              You're signed in as the organiser, so there's nothing to accept here. This page is for <strong>{info.email}</strong> — they'll see a Join button when they open it.
+              To try it yourself, open this link in a private window and sign in as {info.email}.
+            </div>
+            <div className="row wrap">
+              <button className="btn" onClick={() => navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true), () => undefined)}>{copied ? "Copied" : "Copy invite link"}</button>
+              <button className="btn ghost" onClick={() => nav("/app/links")}>Back to my links</button>
+            </div>
+          </div>
         ) : !ready ? (
           <Loading />
         ) : !session ? (
@@ -136,6 +147,9 @@ export default function Invite() {
           </div>
         ) : (
           <div className="stack">
+            {signedInAs && signedInAs.toLowerCase() !== info.email && (
+              <p className="small muted">Invite sent to {info.email} — you're signed in as {signedInAs}. That's fine if it's also you.</p>
+            )}
             <button className="btn primary lg block" onClick={accept} disabled={!!busy}>{busy === "accept" ? "Joining…" : `Join “${info.link.title}”`}</button>
             <p className="small faint">All {calendars} of your connected calendar{calendars === 1 ? "" : "s"} will be checked for clashes. You can change this in Calendars.</p>
             <button className="btn ghost sm" onClick={decline} disabled={!!busy}>Decline invite</button>

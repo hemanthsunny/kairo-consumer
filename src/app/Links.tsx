@@ -72,68 +72,103 @@ export default function Links() {
     }
   }
 
+  const isGroup = (l: LinkRow) => memberRows.some((m) => m.link_id === l.id && m.status !== "declined");
+  const personal = links.filter((l) => !isGroup(l));
+  const groups = links.filter(isGroup);
+
+  function card(l: LinkRow, group: boolean) {
+    const cal = calendars.find((c) => c.id === l.write_calendar_id);
+    const acc = accounts.find((a) => a.id === cal?.account_id);
+    const ms = memberRows.filter((m) => m.link_id === l.id && m.status !== "declined");
+    const waiting = ms.filter((m) => m.status === "invited").length;
+    const closes = closesLabel(l);
+    return (
+      <div className="card" key={l.id} style={{ opacity: l.is_active ? 1 : 0.65 }}>
+        <div className="spread" style={{ flexWrap: "wrap" }}>
+          <div className="grow" style={{ minWidth: 220 }}>
+            <div className="row wrap">
+              <h3>{l.title}</h3>
+              <span className="badge">{durationLabel(l.duration_min)}</span>
+              {!l.is_active && !closes && <span className="badge">Off</span>}
+              {closes && <span className={`badge ${closes === "Closed" ? "" : "amber"}`}>{closes}</span>}
+            </div>
+            {group && (
+              <p className="small" style={{ marginTop: 4 }}>
+                {ms.length + 1} people{waiting ? <span className="faint"> · {waiting} still to join</span> : <span className="faint"> · everyone has joined</span>}
+              </p>
+            )}
+            <a className="small truncate" href={linkUrl(profile, l)} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 4 }}>
+              {linkUrl(profile, l).replace(/^https?:\/\//, "")}
+            </a>
+            <p className="small muted" style={{ marginTop: 6 }}>
+              {acc ? <>Books into <i className="dot" style={{ display: "inline-block", background: acc.color, width: 8, height: 8 }} /> {acc.label} ({acc.email}){group ? " and everyone's calendars" : ""}</> : "Not adding events to a calendar — guests get an emailed invite"}
+            </p>
+          </div>
+          <div className="row wrap">
+            <Switch checked={l.is_active} onChange={(v) => toggle(l, v)} label={`Turn ${l.title} on or off`} />
+            <button className="btn sm" onClick={async () => { if (await copyText(linkUrl(profile, l))) toast("Link copied"); }}><IconCopy width={15} />Copy</button>
+            <button className="btn sm" onClick={() => setEditing({ ...l, _group: group } as Draft)}>{group ? "Edit / people" : "Edit"}</button>
+            {l.expires_at && (l.is_active
+              ? <button className="btn ghost sm" onClick={() => closeNow(l)}>Close</button>
+              : <button className="btn ghost sm" onClick={() => extend(l)}>Reopen 7 days</button>)}
+            {l.expires_at && l.is_active && <button className="btn ghost sm" onClick={() => extend(l)}>+7 days</button>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function newGroup() {
+    if (plan !== "premium") return toast("Group links are part of Premium.");
+    setEditing({ ...blank(defaultWrite), _group: true } as Draft);
+  }
+
   return (
     <div className="stack-lg" style={{ maxWidth: 820 }}>
       <div className="page-head">
         <div>
           <h1>Links</h1>
-          <p className="muted">One link per purpose. Each one checks every calendar and books into the one you choose. Add people to a link to book calls with several of you at once.</p>
+          <p className="muted">Share a link, people pick a time, it lands in your calendar.</p>
         </div>
-        <button className="btn primary" onClick={() => freeLimitReached ? toast("The free plan includes 1 active booking link. Go Premium for unlimited links.") : setEditing(blank(defaultWrite))} disabled={!accounts.length}>
-          <IconPlus width={16} /> New link
-        </button>
       </div>
       <HandleEditor />
       {!accounts.length && <div className="alert info">Connect a calendar first, then create links.</div>}
-      {freeLimitReached && (
-        <div className="alert info">The free plan includes 1 active booking link. <Link to="/app/settings#plan">Go Premium</Link> for unlimited links, one for each purpose.</div>
-      )}
 
-      <div className="stack">
-        {links.map((l) => {
-          const cal = calendars.find((c) => c.id === l.write_calendar_id);
-          const acc = accounts.find((a) => a.id === cal?.account_id);
-          return (
-            <div className="card" key={l.id} style={{ opacity: l.is_active ? 1 : 0.65 }}>
-              <div className="spread" style={{ flexWrap: "wrap" }}>
-                <div className="grow" style={{ minWidth: 220 }}>
-                  <div className="row wrap">
-                    <h3>{l.title}</h3>
-                    <span className="badge">{durationLabel(l.duration_min)}</span>
-                    {!l.is_active && !closesLabel(l) && <span className="badge">Off</span>}
-                    {closesLabel(l) && <span className={`badge ${closesLabel(l) === "Closed" ? "" : "amber"}`}>{closesLabel(l)}</span>}
-                    {(() => {
-                      const ms = memberRows.filter((m) => m.link_id === l.id && m.status !== "declined");
-                      if (!ms.length) return null;
-                      const waiting = ms.filter((m) => m.status === "invited").length;
-                      return <span className="badge accent">Group · {ms.length + 1} people{waiting ? ` · ${waiting} invited` : ""}</span>;
-                    })()}
-                  </div>
-                  <a className="small truncate" href={linkUrl(profile, l)} target="_blank" rel="noreferrer" style={{ display: "block", marginTop: 4 }}>
-                    {linkUrl(profile, l).replace(/^https?:\/\//, "")}
-                  </a>
-                  <p className="small muted" style={{ marginTop: 6 }}>
-                    {acc ? <>Books into <i className="dot" style={{ display: "inline-block", background: acc.color, width: 8, height: 8 }} /> {acc.label} ({acc.email})</> : "Not adding events to a calendar — guests get an emailed invite"}
-                  </p>
-                </div>
-                <div className="row">
-                  <Switch checked={l.is_active} onChange={(v) => toggle(l, v)} label={`Turn ${l.title} on or off`} />
-                  <button className="btn sm" onClick={async () => { if (await copyText(linkUrl(profile, l))) toast("Link copied"); }}><IconCopy width={15} />Copy</button>
-                  <button className="btn sm" onClick={() => setEditing({ ...l })}>Edit</button>
-                  {!memberRows.some((m) => m.link_id === l.id && m.status !== "declined") && (
-                    <button className="btn ghost sm" onClick={() => setEditing({ ...l, _focusPeople: true } as Draft)}>+ Add people</button>
-                  )}
-                  {l.expires_at && (l.is_active
-                    ? <button className="btn ghost sm" onClick={() => closeNow(l)}>Close</button>
-                    : <button className="btn ghost sm" onClick={() => extend(l)}>Reopen 7 days</button>)}
-                  {l.expires_at && l.is_active && <button className="btn ghost sm" onClick={() => extend(l)}>+7 days</button>}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        {!links.length && accounts.length > 0 && <div className="card empty">No links yet.</div>}
-      </div>
+      <section className="stack">
+        <div className="spread" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 style={{ fontSize: 18 }}>My links</h2>
+            <p className="small muted">Just you. Checks all your calendars.</p>
+          </div>
+          <button className="btn primary" onClick={() => freeLimitReached ? toast("The free plan includes 1 active booking link. Go Premium for unlimited links.") : setEditing(blank(defaultWrite))} disabled={!accounts.length}>
+            <IconPlus width={16} /> New link
+          </button>
+        </div>
+        {freeLimitReached && (
+          <div className="alert info">The free plan includes 1 active booking link. <Link to="/app/settings#plan">Go Premium</Link> for unlimited links, one for each purpose.</div>
+        )}
+        {personal.map((l) => card(l, false))}
+        {!personal.length && accounts.length > 0 && <div className="card empty">No links yet.</div>}
+      </section>
+
+      <section className="stack">
+        <div className="spread" style={{ flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <h2 style={{ fontSize: 18 }}>Group links {plan !== "premium" && <span className="badge accent" style={{ marginLeft: 6 }}>Premium</span>}</h2>
+            <p className="small muted">You and others on one call. Guests only see times when everyone is free. Closes after 7 days by default.</p>
+          </div>
+          <button className="btn" onClick={newGroup} disabled={!accounts.length}>
+            <IconPlus width={16} /> New group link
+          </button>
+        </div>
+        {groups.map((l) => card(l, true))}
+        {!groups.length && (
+          <div className="card empty small">
+            No group links yet. Use one when a call needs several people — for example a client kickoff with your co-founder.
+          </div>
+        )}
+      </section>
+
       <SharedWithMe />
       {editing && <LinkEditor draft={editing} onClose={() => { setEditing(null); loadMembers(); }} />}
     </div>
@@ -150,13 +185,14 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const writable = calendars.filter((c) => c.can_write);
   const [pendingPeople, setPendingPeople] = useState<string[]>([]);
+  const group = !!(draft as { _group?: boolean })._group;
   // "keep" leaves an existing closing date alone; new links pick a period
-  const [closeIn, setCloseIn] = useState<string>(draft.id ? "keep" : "never");
+  const [closeIn, setCloseIn] = useState<string>(draft.id ? "keep" : (draft as { _group?: boolean })._group ? "7" : "never");
   const [closeTouched, setCloseTouched] = useState(false);
   useEffect(() => {
     // group links close after 7 days by default, like Kairo HR scheduling links
-    if (!draft.id && !closeTouched) setCloseIn(pendingPeople.length ? "7" : "never");
-  }, [pendingPeople.length, draft.id, closeTouched]);
+    if (!draft.id && !closeTouched) setCloseIn(group || pendingPeople.length ? "7" : "never");
+  }, [pendingPeople.length, draft.id, closeTouched, group]);
 
   function setDay(day: string, ranges: [string, string][]) {
     set("weekly_hours", { ...d.weekly_hours, [day]: ranges });
@@ -167,6 +203,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     setError(null);
     const slug = d.slug || slugify(d.title);
     if (!d.title.trim()) return setError("Give your link a name");
+    if (group && !draft.id && !pendingPeople.length) return setError("Add at least one person to this group link");
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(slug)) return setError("The link address can only use lowercase letters, numbers and dashes");
     if ((d.location_type === "custom_url") && !/^https:\/\/\S+$/.test(d.location_value ?? "")) return setError("Enter a meeting link starting with https://");
     for (const [day, ranges] of Object.entries(d.weekly_hours)) {
@@ -183,6 +220,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     };
     delete (row as { id?: string }).id;
     delete (row as { _focusPeople?: boolean })._focusPeople;
+    delete (row as { _group?: boolean })._group;
     const res = draft.id
       ? await supabase.from("links").update(row).eq("id", draft.id).select("id").single()
       : await supabase.from("links").insert(row).select("id").single();
@@ -218,14 +256,14 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     <div className="modal-back" role="dialog" aria-modal="true" aria-label={draft.id ? "Edit link" : "New link"} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal stack-lg" onSubmit={save} noValidate>
         <div className="spread">
-          <h2>{draft.id ? "Edit link" : "New link"}</h2>
+          <h2>{group ? (draft.id ? "Edit group link" : "New group link") : (draft.id ? "Edit link" : "New link")}</h2>
           <button type="button" className="btn ghost sm" onClick={onClose}>Close</button>
         </div>
         {error && <div className="alert error" role="alert">{error}</div>}
 
         <div className="grid-2" style={{ gap: 14 }}>
           <label className="field">Name
-            <input type="text" value={d.title} placeholder="e.g. Client intro call" onChange={(e) => {
+            <input type="text" value={d.title} placeholder={group ? "e.g. Client kickoff with Sam" : "e.g. Client intro call"} onChange={(e) => {
               set("title", e.target.value.slice(0, 80));
               if (!slugTouched) set("slug", slugify(e.target.value));
             }} />
@@ -244,11 +282,11 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
           <textarea value={d.description ?? ""} maxLength={500} rows={2} onChange={(e) => set("description", e.target.value)} placeholder="Optional: what the call is for, what to prepare" />
         </label>
 
-        <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople}
+        {group && <PeopleField linkId={draft.id} pending={pendingPeople} setPending={setPendingPeople}
           onAdded={() => { if (draft.id && !d.expires_at && !closeTouched) setCloseIn("7"); }}
-          focus={(draft as { _focusPeople?: boolean })._focusPeople} />
+          focus={(draft as { _focusPeople?: boolean })._focusPeople} />}
 
-        <label className="field" style={{ maxWidth: 360 }}>Link closes
+        {group && <label className="field" style={{ maxWidth: 360 }}>Link closes
           <select value={closeIn} onChange={(e) => { setCloseTouched(true); setCloseIn(e.target.value); }}>
             {draft.id && <option value="keep">{d.expires_at ? `Keep current (${closesLabel(d) ?? ""})` : "Keep open (no closing date)"}</option>}
             <option value="3">After 3 days</option>
@@ -258,7 +296,7 @@ function LinkEditor({ draft, onClose }: { draft: Draft; onClose: () => void }) {
             <option value="never">Never — keep it open</option>
           </select>
           <span className="hint">Once the call is booked or the purpose is done, the link stops taking bookings. Bookings already made stay in place.</span>
-        </label>
+        </label>}
 
         <div className="field" role="group" aria-label="Duration">
           <span>Length</span>
@@ -506,10 +544,10 @@ function PeopleField({ linkId, pending, setPending, onAdded, focus }: { linkId?:
   const shown = members;
   return (
     <div className="field" ref={(el) => { if (el && focus) setTimeout(() => { el.scrollIntoView({ block: "center" }); el.querySelector("input")?.focus(); }, 50); }}>
-      <span>People on this call {!premium && <span className="badge accent" style={{ marginLeft: 6 }}>Premium</span>}</span>
+      <span>Who's on the call {!premium && <span className="badge accent" style={{ marginLeft: 6 }}>Premium</span>}</span>
       <div className="card flat stack" style={{ gap: 10, padding: 14 }}>
         <p className="small muted" style={{ margin: 0 }}>
-          Add anyone who should be on this call. Guests only see times when you're all free, and every booking lands in everyone's calendar. Each person joins once with their own calendar.
+          Each person gets an email to join with their calendar. Guests then only see times when you're all free, and every booking lands in everyone's calendar.
         </p>
         {(shown.length > 0 || pending.length > 0) && (
           <div>
