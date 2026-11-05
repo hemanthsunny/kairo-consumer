@@ -247,7 +247,7 @@ function ConnectedApps() {
         <div className="card flat stack" style={{ gap: 6 }}>
           <div style={{ fontWeight: 500 }}>No apps connected yet</div>
           <p className="small muted" style={{ margin: 0 }}>
-            Use Kairo Link as your one calendar in Kairo HR: in Kairo HR, open your interviewer settings and choose <b>Connect via Kairo Link</b>. You'll come back here to approve it, and it will then appear in this list.
+            Interviewing with a company on Kairo HR? Open the calendar link your HR team sent you (in Kairo HR: Interviewers → <b>Connect link</b>), choose <b>Several calendars · Kairo Link</b>, and approve it here. It will then appear in this list.
           </p>
         </div>
       ) : (
