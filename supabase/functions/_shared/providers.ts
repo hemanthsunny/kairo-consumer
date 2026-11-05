@@ -245,6 +245,90 @@ export async function deleteEvent(provider: Provider, token: string, eventId: st
   }
 }
 
+/** One event Kairo created for a connected app (Kairo HR): times, status and attendee responses. */
+export interface AppEventState {
+  status: "confirmed" | "cancelled" | "gone";
+  start: number | null;
+  end: number | null;
+  meetingUrl: string | null;
+  attendees: { email: string; response: "accepted" | "declined" | "tentative" | "needsAction" }[];
+}
+
+export async function getEvent(provider: Provider, token: string, eventId: string): Promise<AppEventState> {
+  if (provider === "google") {
+    const res = await api(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?fields=${encodeURIComponent("status,start,end,hangoutLink,conferenceData/entryPoints,attendees(email,responseStatus)")}`,
+      token,
+    );
+    if (res.status === 404 || res.status === 410) return { status: "gone", start: null, end: null, meetingUrl: null, attendees: [] };
+    const d = await res.json();
+    if (!res.ok) throw new Error(`Google event read failed: ${d.error?.message ?? res.status}`);
+    return {
+      status: d.status === "cancelled" ? "cancelled" : "confirmed",
+      start: Date.parse(d.start?.dateTime ?? d.start?.date), end: Date.parse(d.end?.dateTime ?? d.end?.date),
+      meetingUrl: d.hangoutLink ?? d.conferenceData?.entryPoints?.find((p: { entryPointType: string }) => p.entryPointType === "video")?.uri ?? null,
+      attendees: (d.attendees ?? []).map((a: { email: string; responseStatus?: string }) => ({
+        email: String(a.email).toLowerCase(),
+        response: (["accepted", "declined", "tentative"].includes(a.responseStatus ?? "") ? a.responseStatus : "needsAction") as AppEventState["attendees"][number]["response"],
+      })),
+    };
+  }
+  const res = await api(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}?$select=start,end,isCancelled,attendees,onlineMeeting`, token, {
+    headers: { Prefer: 'outlook.timezone="UTC"' },
+  });
+  if (res.status === 404) return { status: "gone", start: null, end: null, meetingUrl: null, attendees: [] };
+  const d = await res.json();
+  if (!res.ok) throw new Error(`Microsoft event read failed: ${d.error?.message ?? res.status}`);
+  const utc = (x?: string) => (x ? Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(x) ? x : `${x}Z`) : null);
+  const map: Record<string, AppEventState["attendees"][number]["response"]> = { accepted: "accepted", declined: "declined", tentativelyAccepted: "tentative" };
+  return {
+    status: d.isCancelled ? "cancelled" : "confirmed",
+    start: utc(d.start?.dateTime), end: utc(d.end?.dateTime), meetingUrl: d.onlineMeeting?.joinUrl ?? null,
+    attendees: (d.attendees ?? []).map((a: { emailAddress?: { address?: string }; status?: { response?: string } }) => ({
+      email: String(a.emailAddress?.address ?? "").toLowerCase(), response: map[a.status?.response ?? ""] ?? "needsAction",
+    })),
+  };
+}
+
+export interface EventChange {
+  title?: string;
+  description?: string;
+  start?: number;
+  end?: number;
+  hostTz: string;
+  attendees?: { email: string; name: string | null }[];
+}
+
+/** Moves or edits an event in place; attendees get an update, not a cancellation. */
+export async function updateEvent(provider: Provider, token: string, eventId: string, ch: EventChange): Promise<{ meetingUrl: string | null }> {
+  if (provider === "google") {
+    const body: Record<string, unknown> = {};
+    if (ch.title !== undefined) body.summary = ch.title;
+    if (ch.description !== undefined) body.description = ch.description;
+    if (ch.start !== undefined) body.start = { dateTime: new Date(ch.start).toISOString(), timeZone: ch.hostTz };
+    if (ch.end !== undefined) body.end = { dateTime: new Date(ch.end).toISOString(), timeZone: ch.hostTz };
+    if (ch.attendees) body.attendees = ch.attendees.map((a) => ({ email: a.email, displayName: a.name ?? undefined }));
+    const res = await api(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all&conferenceDataVersion=1`, token, {
+      method: "PATCH", body: JSON.stringify(body),
+    });
+    const d = await res.json();
+    if (res.status === 404 || res.status === 410) throw new Error("gone");
+    if (!res.ok) throw new Error(`Google event update failed: ${d.error?.message ?? res.status}`);
+    return { meetingUrl: d.hangoutLink ?? d.conferenceData?.entryPoints?.find((p: { entryPointType: string }) => p.entryPointType === "video")?.uri ?? null };
+  }
+  const body: Record<string, unknown> = {};
+  if (ch.title !== undefined) body.subject = ch.title;
+  if (ch.description !== undefined) body.body = { contentType: "text", content: ch.description };
+  if (ch.start !== undefined) body.start = { dateTime: new Date(ch.start).toISOString().slice(0, 19), timeZone: "UTC" };
+  if (ch.end !== undefined) body.end = { dateTime: new Date(ch.end).toISOString().slice(0, 19), timeZone: "UTC" };
+  if (ch.attendees) body.attendees = ch.attendees.map((a) => ({ emailAddress: { address: a.email, name: a.name ?? a.email }, type: "required" }));
+  const res = await api(`https://graph.microsoft.com/v1.0/me/events/${encodeURIComponent(eventId)}`, token, { method: "PATCH", body: JSON.stringify(body) });
+  const d = await res.json().catch(() => ({}));
+  if (res.status === 404) throw new Error("gone");
+  if (!res.ok) throw new Error(`Microsoft event update failed: ${d.error?.message ?? res.status}`);
+  return { meetingUrl: d.onlineMeeting?.joinUrl ?? null };
+}
+
 // ---------------------------------------------------------------------------------
 // Event details (shown to the signed-in owner only; fetched live, never stored)
 

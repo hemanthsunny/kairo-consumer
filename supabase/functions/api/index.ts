@@ -4,7 +4,7 @@
 import { admin, effectivePlan, type Profile, requireUser } from "../_shared/db.ts";
 import { env } from "../_shared/env.ts";
 import { body, HttpError, isEmail, json, optStr, preflight, randomToken, redirect, str } from "../_shared/http.ts";
-import { authUrl, type CalEvent, createEvent, deleteEvent, exchangeCode, fetchEvents, type Provider, ProviderAuthError } from "../_shared/providers.ts";
+import { authUrl, type CalEvent, createEvent, deleteEvent, exchangeCode, fetchEvents, getEvent, type Provider, ProviderAuthError, updateEvent } from "../_shared/providers.ts";
 import { type AccountRow, busyForUser, clearBusyCache, getAccessToken } from "../_shared/accounts.ts";
 import { generateSlots, type Interval, isSlotAvailable, type LinkRules, windowEnd } from "../_shared/slots.ts";
 import { isValidTimeZone, zonedToUtc } from "../_shared/tz.ts";
@@ -1217,6 +1217,57 @@ route("POST", "/apps/v1/events", async (req) => {
   const { data: row } = await db.from("app_events").insert({ connection_id: conn.id, account_id: acc.id, provider_event_id: ev.eventId, meeting_url: ev.meetingUrl }).select("id").single();
   background(onCalendarChanged(acc.id));
   return json({ id: row?.id, calendar: acc.email, meeting_url: ev.meetingUrl });
+});
+
+/** The app's own event, as it is now in the calendar (it may have been moved, cancelled or declined there). */
+async function appEvent(connId: string, id: string) {
+  const db = admin();
+  const { data: e } = await db.from("app_events").select("*").eq("id", id).eq("connection_id", connId).maybeSingle();
+  if (!e) throw new HttpError(404, "Event not found");
+  const { data: acc } = e.account_id ? await db.from("connected_accounts").select("id,user_id,provider,email,label,color,status").eq("id", e.account_id).maybeSingle() : { data: null };
+  return { e, acc: acc as AccountRow | null };
+}
+
+route("GET", "/apps/v1/events/:id", async (req, p) => {
+  const conn = await authConnection(req, "events.write");
+  const { e, acc } = await appEvent(conn.id, p.id);
+  if (!acc) return json({ id: e.id, status: "gone", start: null, end: null, meeting_url: e.meeting_url, attendees: [] });
+  let st;
+  try { st = await getEvent(acc.provider, await getAccessToken(acc), e.provider_event_id); }
+  catch (err) { if (err instanceof ProviderAuthError) throw new HttpError(409, "This calendar needs reconnecting in Kairo Link"); throw err; }
+  return json({
+    id: e.id, calendar: acc.email, status: st.status,
+    start: st.start ? new Date(st.start).toISOString() : null, end: st.end ? new Date(st.end).toISOString() : null,
+    meeting_url: st.meetingUrl ?? e.meeting_url, attendees: st.attendees,
+  });
+});
+
+route("PATCH", "/apps/v1/events/:id", async (req, p) => {
+  const conn = await authConnection(req, "events.write");
+  const b = await body<{ title?: string; description?: string; start?: string; end?: string; attendees?: { email: string; name?: string }[] }>(req);
+  const { e, acc } = await appEvent(conn.id, p.id);
+  if (!acc) throw new HttpError(410, "The calendar this event was on is no longer connected");
+  const start = b.start !== undefined ? Date.parse(String(b.start)) : undefined;
+  const end = b.end !== undefined ? Date.parse(String(b.end)) : undefined;
+  if ((start !== undefined && !Number.isFinite(start)) || (end !== undefined && !Number.isFinite(end))) throw new HttpError(400, "start and end must be ISO times");
+  if (start !== undefined && end !== undefined && end <= start) throw new HttpError(400, "end must be after start");
+  const attendees = Array.isArray(b.attendees) ? b.attendees.filter((a) => a && isEmail(String(a.email ?? ""))).slice(0, 50).map((a) => ({ email: a.email, name: a.name ?? null })) : undefined;
+  if (attendees && !attendees.length) throw new HttpError(400, "Add at least one attendee");
+  const prof = await loadProfile(conn.user_id);
+  let out;
+  try {
+    out = await updateEvent(acc.provider, await getAccessToken(acc), e.provider_event_id, {
+      title: b.title !== undefined ? str(b.title, "title", 200) : undefined, description: b.description !== undefined ? (optStr(b.description, 4000) ?? "") : undefined,
+      start, end, hostTz: prof.timezone, attendees,
+    });
+  } catch (err) {
+    if (err instanceof ProviderAuthError) throw new HttpError(409, "This calendar needs reconnecting in Kairo Link");
+    if ((err as Error).message === "gone") throw new HttpError(410, "This event was deleted from the calendar");
+    throw err;
+  }
+  if (out.meetingUrl && out.meetingUrl !== e.meeting_url) await admin().from("app_events").update({ meeting_url: out.meetingUrl }).eq("id", e.id);
+  background(onCalendarChanged(acc.id));
+  return json({ id: e.id, calendar: acc.email, meeting_url: out.meetingUrl ?? e.meeting_url });
 });
 
 route("DELETE", "/apps/v1/events/:id", async (req, p) => {
