@@ -103,10 +103,10 @@ export default function Invite() {
           <h1 style={{ fontSize: 22 }}>Join {info.team.name}</h1>
           <p className="muted small">
             {info.inviter} invited you{info.role === "admin" ? " as an admin" : ""}. {info.people.length ? `${joinNames(info.people)} ${info.people.length === 1 ? "is" : "are"} already in. ` : ""}
-            Once you join, clients can book calls with you through the team's links, and you can find times that work for everyone — every booking lands in your calendar.
+            Once you join, clients can book calls with you through the group's links, and you can find times that work for everyone — every booking lands in your calendar.
           </p>
           {info.team.description && <p className="small" style={{ whiteSpace: "pre-line" }}>{info.team.description}</p>}
-          <p className="small faint">Only your busy times are shared with the team — never your event titles or details.</p>
+          <p className="small faint">Only your busy times are shared with the group — never your event titles or details.</p>
         </div>
 
         {error && <div className="alert error" role="alert">{error}</div>}
@@ -119,13 +119,13 @@ export default function Invite() {
             </div>
             <div className="row wrap">
               <button className="btn" onClick={() => navigator.clipboard?.writeText(window.location.href).then(() => setCopied(true), () => undefined)}>{copied ? "Copied" : "Copy invite link"}</button>
-              <button className="btn ghost" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the team</button>
+              <button className="btn ghost" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the group</button>
             </div>
           </div>
         ) : done === "joined" || alreadyIn ? (
           <div className="stack">
-            <div className="alert success" role="status">You're in {info.team.name}. Team bookings will show up in your calendar.</div>
-            <button className="btn primary lg block" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the team</button>
+            <div className="alert success" role="status">You're in {info.team.name}. Group bookings will show up in your calendar.</div>
+            <button className="btn primary lg block" onClick={() => nav(`/app/teams/${info.team.id}`)}>Open the group</button>
           </div>
         ) : done === "declined" ? (
           <div className="alert info" role="status">Invite declined. You won't be added unless someone invites you again.</div>

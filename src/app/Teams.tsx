@@ -31,12 +31,12 @@ export default function Teams() {
     <div className="stack-lg" style={{ maxWidth: 820 }}>
       <div className="page-head">
         <div>
-          <h1>Teams</h1>
+          <h1>Groups</h1>
           <p className="muted">Book clients with several colleagues at once, and find times that work for everyone inside the team.</p>
         </div>
         {plan === "premium" && (
           <button className="btn primary" onClick={() => setCreating(true)} disabled={!accounts.length}>
-            <IconPlus width={16} /> New team
+            <IconPlus width={16} /> New group
           </button>
         )}
       </div>
@@ -70,19 +70,19 @@ export default function Teams() {
       ) : (
         <div className="card stack center" style={{ padding: 36 }}>
           <IconUsers width={34} style={{ alignSelf: "center", color: "var(--accent)" }} />
-          <h2 style={{ fontSize: 18 }}>No teams yet</h2>
+          <h2 style={{ fontSize: 18 }}>No groups yet</h2>
           <p className="muted small" style={{ maxWidth: 460, margin: "0 auto" }}>
-            A team gets its own address — like <strong>{window.location.host}/acme-sales</strong> — with booking links clients use to meet
+            A group gets its own address — like <strong>{window.location.host}/acme-sales</strong> — with booking links clients use to meet
             the right people, plus “Find a time” for internal calls. Members join free with their own calendar.
           </p>
           {plan === "premium" ? (
             <button className="btn primary" style={{ alignSelf: "center" }} onClick={() => setCreating(true)} disabled={!accounts.length}>
-              <IconPlus width={16} /> Create a team
+              <IconPlus width={16} /> Create a group
             </button>
           ) : (
-            <Link to="/app/settings#plan" className="btn primary" style={{ alignSelf: "center" }}>Go Premium to create a team</Link>
+            <Link to="/app/settings#plan" className="btn primary" style={{ alignSelf: "center" }}>Go Premium to create a group</Link>
           )}
-          <p className="small faint">Invited to a team? Open the invite email to join.</p>
+          <p className="small faint">Invited to a group? Open the invite email to join.</p>
         </div>
       )}
 
@@ -109,12 +109,12 @@ function CreateTeam({ onClose }: { onClose: () => void }) {
   async function save(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!name.trim()) return setError("Give your team a name");
+    if (!name.trim()) return setError("Give your group a name");
     if (!/^[a-z0-9][a-z0-9-]{2,30}$/.test(handle)) return setError("The address needs 3–31 lowercase letters, numbers or dashes");
     setBusy(true);
     try {
       const r = await api<{ team: { id: string } }>("/me/teams", { method: "POST", body: JSON.stringify({ name: name.trim(), handle }) });
-      toast("Team created — now invite your colleagues");
+      toast("Group created — now invite your colleagues");
       nav(`/app/teams/${r.team.id}?tab=people`);
     } catch (err) {
       setError((err as Error).message);
@@ -123,28 +123,28 @@ function CreateTeam({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="modal-back" role="dialog" aria-modal="true" aria-label="New team" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-back" role="dialog" aria-modal="true" aria-label="New group" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal stack-lg" style={{ maxWidth: 480 }} onSubmit={save} noValidate>
         <div className="spread">
-          <h2>New team</h2>
+          <h2>New group</h2>
           <button type="button" className="btn ghost sm" onClick={onClose}>Close</button>
         </div>
         {error && <div className="alert error" role="alert">{error}</div>}
-        <label className="field">Team name
+        <label className="field">Group name
           <input type="text" autoFocus value={name} placeholder="e.g. Acme Sales" maxLength={80} onChange={(e) => {
             setName(e.target.value);
             if (!touched) setHandle(slugify(e.target.value));
           }} />
         </label>
-        <label className="field">Team address
+        <label className="field">Group address
           <div className="input-prefix"><span>{window.location.host}/</span>
             <input type="text" value={handle} maxLength={31} onChange={(e) => { setTouched(true); setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "")); }} />
           </div>
-          <span className="hint">Your team's booking links live here, e.g. /{handle || "acme-sales"}/30min</span>
+          <span className="hint">Your group's booking links live here, e.g. /{handle || "acme-sales"}/30min</span>
         </label>
         <div className="row" style={{ justifyContent: "flex-end" }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn primary" disabled={busy}>{busy ? "Creating…" : "Create team"}</button>
+          <button className="btn primary" disabled={busy}>{busy ? "Creating…" : "Create group"}</button>
         </div>
       </form>
     </div>

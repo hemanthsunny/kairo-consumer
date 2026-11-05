@@ -113,7 +113,7 @@ async function activeTeamUserIds(teamId: string): Promise<string[]> {
   return (data ?? []).map((m) => m.user_id).filter(Boolean) as string[];
 }
 
-/** Everyone on a team link apart from its creator (the host). Empty for personal links. */
+/** Everyone on a group link apart from its creator (the host). Empty for personal links. */
 async function activeMembers(linkId: string): Promise<(Person & { id: string })[]> {
   const { data: link } = await admin().from("links").select("user_id,team_id,attendee_ids").eq("id", linkId).maybeSingle();
   if (!link?.team_id) return [];
@@ -367,7 +367,7 @@ async function loadPublic(handle: string, slug: string) {
   q = r.team ? q.eq("team_id", r.team.id) : q.eq("user_id", r.profile.id).is("team_id", null);
   const { data: link } = await q.maybeSingle();
   if (!link || !link.is_active) throw new HttpError(404, "This booking link isn't open right now");
-  if (r.team && effectivePlan(r.profile) !== "premium") throw new HttpError(403, "This team's booking links are paused");
+  if (r.team && effectivePlan(r.profile) !== "premium") throw new HttpError(403, "This group's booking links are paused");
   const host = r.team ? await loadProfile(link.user_id) : r.profile;
   return { profile: host, link, team: r.team };
 }
@@ -647,11 +647,11 @@ const HANDLE_RE = /^[a-z0-9][a-z0-9-]{2,30}$/;
 async function teamFor(userId: string, teamId: string, need: Role = "member") {
   const db = admin();
   const { data: team } = await db.from("teams").select("*").eq("id", teamId).maybeSingle();
-  if (!team) throw new HttpError(404, "Team not found");
+  if (!team) throw new HttpError(404, "Group not found");
   const { data: me } = await db.from("team_members").select("*").eq("team_id", teamId).eq("user_id", userId).eq("status", "active").maybeSingle();
-  if (!me) throw new HttpError(403, "You're not in this team");
+  if (!me) throw new HttpError(403, "You're not in this group");
   const rank: Record<Role, number> = { member: 1, admin: 2, owner: 3 };
-  if (rank[me.role as Role] < rank[need]) throw new HttpError(403, need === "owner" ? "Only the team owner can do that" : "Only team admins can do that");
+  if (rank[me.role as Role] < rank[need]) throw new HttpError(403, need === "owner" ? "Only the group owner can do that" : "Only group admins can do that");
   return { team, me: me as { id: string; role: Role } };
 }
 
@@ -708,10 +708,10 @@ route("GET", "/me/teams", async (req) => {
 route("POST", "/me/teams", async (req) => {
   const user = await requireUser(req);
   const owner = await loadProfile(user.id);
-  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "Teams are part of Premium. Go Premium to create a team.");
+  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "Groups are part of Premium. Go Premium to create a group.");
   const b = await body<{ name?: string; handle?: string; description?: string }>(req);
-  const name = str(b.name, "Team name", 80);
-  const handle = str(b.handle, "Team address", 31).toLowerCase();
+  const name = str(b.name, "Group name", 80);
+  const handle = str(b.handle, "Group address", 31).toLowerCase();
   if (!HANDLE_RE.test(handle)) throw new HttpError(400, "Use 3–31 lowercase letters, numbers or dashes for the address");
   const db = admin();
   const { data: team, error } = await db.from("teams").insert({ owner_id: user.id, name, handle, description: optStr(b.description, 500) }).select("*").single();
@@ -748,10 +748,10 @@ route("PATCH", "/me/teams/:id", async (req, p) => {
   const b = await body<{ name?: string; handle?: string; description?: string | null }>(req);
   const { team } = await teamFor(user.id, p.id, b.handle !== undefined ? "owner" : "admin");
   const patch: Record<string, unknown> = {};
-  if (b.name !== undefined) patch.name = str(b.name, "Team name", 80);
+  if (b.name !== undefined) patch.name = str(b.name, "Group name", 80);
   if (b.description !== undefined) patch.description = optStr(b.description, 500);
   if (b.handle !== undefined) {
-    const h = str(b.handle, "Team address", 31).toLowerCase();
+    const h = str(b.handle, "Group address", 31).toLowerCase();
     if (!HANDLE_RE.test(h)) throw new HttpError(400, "Use 3–31 lowercase letters, numbers or dashes for the address");
     patch.handle = h;
   }
@@ -773,7 +773,7 @@ route("POST", "/me/teams/:id/members", async (req, p) => {
   const { team } = await teamFor(user.id, p.id, "admin");
   const inviter = await loadProfile(user.id);
   const owner = await loadProfile(team.owner_id);
-  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "The team owner needs Premium to add people.");
+  if (effectivePlan(owner) !== "premium") throw new HttpError(403, "The group owner needs Premium to add people.");
   const b = await body<{ emails?: unknown; role?: string }>(req);
   const role = b.role === "admin" ? "admin" : "member";
   const raw = Array.isArray(b.emails) ? b.emails : [];
@@ -784,7 +784,7 @@ route("POST", "/me/teams/:id/members", async (req, p) => {
   const { data: existing } = await db.from("team_members").select("id,email,status,user_id").eq("team_id", team.id);
   const current = (existing ?? []).filter((m) => m.status !== "declined" && m.user_id !== team.owner_id);
   const fresh = emails.filter((e) => !(existing ?? []).some((m) => m.email === e && m.status !== "declined"));
-  if (current.length + fresh.length > TEAM_MAX_MEMBERS) throw new HttpError(400, `A team can have up to ${TEAM_MAX_MEMBERS} people besides the owner.`);
+  if (current.length + fresh.length > TEAM_MAX_MEMBERS) throw new HttpError(400, `A group can have up to ${TEAM_MAX_MEMBERS} people besides the owner.`);
   for (const email of fresh) {
     const prev = (existing ?? []).find((m) => m.email === email);
     const { data: row, error } = prev
@@ -795,7 +795,7 @@ route("POST", "/me/teams/:id/members", async (req, p) => {
     try {
       await sendTeamInvite(inviter, team, email, row.invite_token);
     } catch (e) {
-      console.error("team invite email", e);
+      console.error("group invite email", e);
     }
   }
   return json({ members: await teamMembersView(team.id), added: fresh.length });
@@ -819,7 +819,7 @@ route("DELETE", "/me/teams/:id/members/:mid", async (req, p) => {
   const { team, me } = await teamFor(user.id, p.id);
   const { data: m } = await db.from("team_members").select("id,role,user_id").eq("id", p.mid).eq("team_id", team.id).maybeSingle();
   if (!m) throw new HttpError(404, "Person not found");
-  if (m.role === "owner") throw new HttpError(400, "The owner can't leave the team. Delete the team instead.");
+  if (m.role === "owner") throw new HttpError(400, "The owner can't leave the group. Delete the group instead.");
   const self = m.user_id === user.id;
   const allowed = self || me.role === "owner" || (me.role === "admin" && m.role === "member");
   if (!allowed) throw new HttpError(403, "You can't remove this person");
@@ -899,7 +899,7 @@ const FIND_HOURS: LinkRules["weeklyHours"] = {
 async function teamCallPeople(userId: string, teamId: string, memberIds: unknown) {
   const active = await activeTeamUserIds(teamId);
   const chosen = Array.isArray(memberIds) ? memberIds.map(String).filter((u) => active.includes(u) && u !== userId) : [];
-  if (!chosen.length) throw new HttpError(400, "Pick at least one teammate");
+  if (!chosen.length) throw new HttpError(400, "Pick at least one group member");
   return chosen;
 }
 
@@ -997,7 +997,7 @@ route("GET", "/invites/:token", async (_req, p) => {
   const { data: m } = await db.from("team_members").select("*").eq("invite_token", p.token).maybeSingle();
   if (!m) throw new HttpError(404, "This invite isn't valid any more. Ask for a new one.");
   const { data: team } = await db.from("teams").select("*").eq("id", m.team_id).maybeSingle();
-  if (!team) throw new HttpError(404, "This team has been deleted.");
+  if (!team) throw new HttpError(404, "This group has been deleted.");
   const { data: inviter } = await db.from("profiles").select("full_name,handle,email").eq("id", m.invited_by ?? team.owner_id).maybeSingle();
   const active = await activeTeamUserIds(team.id);
   return json({
@@ -1019,7 +1019,7 @@ route("POST", "/invites/:token/accept", async (req, p) => {
   if (!m) throw new HttpError(404, "This invite isn't valid any more. Ask for a new one.");
   if (m.status === "active" && m.user_id && m.user_id !== user.id) throw new HttpError(409, "Someone has already joined with this invite.");
   const { count } = await db.from("connected_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id);
-  if (!count) throw new HttpError(400, "Connect a calendar first, so your team only books you when you're free.");
+  if (!count) throw new HttpError(400, "Connect a calendar first, so your group only books you when you're free.");
   const { data: dup } = await db.from("team_members").select("id").eq("team_id", m.team_id).eq("user_id", user.id).neq("id", m.id).maybeSingle();
   if (dup) await db.from("team_members").delete().eq("id", m.id);
   else await db.from("team_members").update({ user_id: user.id, status: "active", joined_at: new Date().toISOString() }).eq("id", m.id);

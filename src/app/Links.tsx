@@ -69,7 +69,7 @@ export default function Links() {
       <div className="page-head">
         <div>
           <h1>Links</h1>
-          <p className="muted">Your own booking links. Each one checks all your calendars. For calls with colleagues, use <Link to="/app/teams">Teams</Link>.</p>
+          <p className="muted">Your own booking links. Each one checks all your calendars. For calls with colleagues, use <Link to="/app/teams">Groups</Link>.</p>
         </div>
         <button className="btn primary" onClick={() => freeLimitReached ? toast("The free plan includes 1 active booking link. Go Premium for unlimited links.") : setEditing(blank(defaultWrite))} disabled={!accounts.length}>
           <IconPlus width={16} /> New link
@@ -164,7 +164,7 @@ export function LinkEditor({ draft, onClose, team }: { draft: Draft; onClose: ()
     setError(null);
     const slug = d.slug || slugify(d.title);
     if (!d.title.trim()) return setError("Give your link a name");
-    if (team && !everyone && chosen.filter((u) => u !== team.myUserId).length === 0) return setError("Pick at least one teammate, or choose everyone");
+    if (team && !everyone && chosen.filter((u) => u !== team.myUserId).length === 0) return setError("Pick at least one group member, or choose everyone");
     if (!/^[a-z0-9][a-z0-9-]{0,40}$/.test(slug)) return setError("The link address can only use lowercase letters, numbers and dashes");
     if ((d.location_type === "custom_url") && !/^https:\/\/\S+$/.test(d.location_value ?? "")) return setError("Enter a meeting link starting with https://");
     for (const [day, ranges] of Object.entries(d.weekly_hours)) {
@@ -193,7 +193,7 @@ export function LinkEditor({ draft, onClose, team }: { draft: Draft; onClose: ()
         return setError((e as Error).message);
       }
       setSaving(false);
-      toast(draft.id ? "Link saved" : "Team link created");
+      toast(draft.id ? "Link saved" : "Group link created");
       team.onSaved();
       onClose();
       return;
@@ -231,7 +231,7 @@ export function LinkEditor({ draft, onClose, team }: { draft: Draft; onClose: ()
     <div className="modal-back" role="dialog" aria-modal="true" aria-label={draft.id ? "Edit link" : "New link"} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal stack-lg" onSubmit={save} noValidate>
         <div className="spread">
-          <h2>{group ? (draft.id ? "Edit team link" : "New team link") : (draft.id ? "Edit link" : "New link")}</h2>
+          <h2>{group ? (draft.id ? "Edit group link" : "New group link") : (draft.id ? "Edit link" : "New link")}</h2>
           <button type="button" className="btn ghost sm" onClick={onClose}>Close</button>
         </div>
         {error && <div className="alert error" role="alert">{error}</div>}
@@ -263,7 +263,7 @@ export function LinkEditor({ draft, onClose, team }: { draft: Draft; onClose: ()
             <div className="card flat stack" style={{ gap: 8, padding: 14 }}>
               <label className="row" style={{ gap: 8 }}>
                 <input type="radio" checked={everyone} onChange={() => setEveryone(true)} />
-                <span>Everyone in the team <span className="faint small">({team.members.length} people)</span></span>
+                <span>Everyone in the group <span className="faint small">({team.members.length} people)</span></span>
               </label>
               <label className="row" style={{ gap: 8 }}>
                 <input type="radio" checked={!everyone} onChange={() => setEveryone(false)} />

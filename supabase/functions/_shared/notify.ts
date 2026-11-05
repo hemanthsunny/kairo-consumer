@@ -254,8 +254,8 @@ export function renderInviteEmail(inviterName: string, teamName: string, url: st
 <div style="background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:28px">
 <p style="margin:0 0 4px;font-size:13px;color:#6b7280">${escapeHtml(env.productName)}</p>
 <h1 style="margin:0 0 14px;font-size:20px;font-weight:600">Join ${escapeHtml(teamName)}</h1>
-<p style="margin:0 0 10px;font-size:15px;line-height:1.5">${escapeHtml(inviterName)} invited you to the ${escapeHtml(teamName)} team. Join once with your calendar and you'll be able to share the team's booking links and find times that work for everyone — clients only see slots when the people on the call are free, and every booking lands in your calendar.</p>
-<p style="margin:0 0 22px;font-size:14px;color:#6b7280">Only your busy times are shared with the team, never your event details.</p>
+<p style="margin:0 0 10px;font-size:15px;line-height:1.5">${escapeHtml(inviterName)} invited you to the ${escapeHtml(teamName)} group. Join once with your calendar and you'll be able to share the group's booking links and find times that work for everyone — clients only see slots when the people on the call are free, and every booking lands in your calendar.</p>
+<p style="margin:0 0 22px;font-size:14px;color:#6b7280">Only your busy times are shared with the group, never your event details.</p>
 <a href="${escapeHtml(url)}" style="display:inline-block;background:#4f46e5;color:#fff;padding:11px 20px;border-radius:8px;text-decoration:none;font-weight:500">Join ${escapeHtml(teamName)}</a>
 </div>
 <p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:16px">Not expecting this? You can ignore it, or decline from the link above.</p>

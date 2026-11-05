@@ -43,7 +43,7 @@ export default function TeamPage() {
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  if (error) return <div className="stack" style={{ maxWidth: 820 }}><Link to="/app/teams" className="small"><IconArrowLeft width={14} /> Teams</Link><div className="alert error">{error}</div></div>;
+  if (error) return <div className="stack" style={{ maxWidth: 820 }}><Link to="/app/teams" className="small"><IconArrowLeft width={14} /> Groups</Link><div className="alert error">{error}</div></div>;
   if (!data) return <Loading />;
 
   const admin = data.my_role !== "member";
@@ -63,7 +63,7 @@ export default function TeamPage() {
 
   return (
     <div className="stack-lg" style={{ maxWidth: 860 }}>
-      <Link to="/app/teams" className="small row" style={{ gap: 4 }}><IconArrowLeft width={14} /> Teams</Link>
+      <Link to="/app/teams" className="small row" style={{ gap: 4 }}><IconArrowLeft width={14} /> Groups</Link>
       <div className="page-head">
         <div>
           <div className="row wrap" style={{ gap: 8 }}>
@@ -72,11 +72,11 @@ export default function TeamPage() {
           </div>
           <p className="muted row wrap" style={{ gap: 8 }}>
             <a href={data.team.url} target="_blank" rel="noreferrer">{data.team.url.replace(/^https?:\/\//, "")}</a>
-            <button className="btn ghost sm" onClick={async () => { if (await copyText(data.team.url)) toast("Team page copied"); }}><IconCopy width={14} />Copy</button>
+            <button className="btn ghost sm" onClick={async () => { if (await copyText(data.team.url)) toast("Group page copied"); }}><IconCopy width={14} />Copy</button>
           </p>
         </div>
       </div>
-      {!data.owner_premium && <div className="alert info">The team owner's Premium has ended, so booking links are paused until it's renewed.</div>}
+      {!data.owner_premium && <div className="alert info">The group owner's Premium has ended, so booking links are paused until it's renewed.</div>}
 
       <div className="tabs" role="tablist">
         {([["links", "Booking links"], ["find", "Find a time"], ["people", `People (${active.length})`], ["settings", "Settings"]] as [Tab, string][]).map(([k, t]) => (
@@ -90,7 +90,7 @@ export default function TeamPage() {
             <p className="small muted" style={{ margin: 0 }}>Share these with clients. They only see times when everyone on the call is free.</p>
             {admin && (
               <button className="btn primary" onClick={() => setEditing({ ...blank(defaultWrite), expires_at: null })} disabled={!defaultWrite}>
-                <IconPlus width={16} /> New team link
+                <IconPlus width={16} /> New group link
               </button>
             )}
           </div>
@@ -108,7 +108,7 @@ export default function TeamPage() {
           ))}
           {!data.links.length && (
             <div className="card empty small">
-              {admin ? "No booking links yet. Create one for each kind of call — e.g. “Intro call” with sales, “Kickoff” with the whole team." : "No booking links yet. Team admins can create them."}
+              {admin ? "No booking links yet. Create one for each kind of call — e.g. “Intro call” with sales, “Kickoff” with the whole group." : "No booking links yet. Group admins can create them."}
             </div>
           )}
         </div>
@@ -232,7 +232,7 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
     setSlot(null);
     setDone(null);
     setDay(null);
-    if (!picked.length) return setErr("Pick at least one teammate");
+    if (!picked.length) return setErr("Pick at least one group member");
     setBusy(true);
     try {
       const r = await api<{ slots: string[]; degraded: boolean }>(`/me/teams/${data.team.id}/availability`, {
@@ -282,7 +282,7 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
   const windowEnd = useMemo(() => new Date(Date.now() + 10 * DAY_MS).toISOString(), []);
 
   if (!others.length) {
-    return <div className="card empty small">Once teammates join, you can find a time that works for all of you here.</div>;
+    return <div className="card empty small">Once group members join, you can find a time that works for all of you here.</div>;
   }
 
   return (
@@ -341,7 +341,7 @@ function FindATime({ data, myId }: { data: TeamData; myId: string }) {
         <div className="modal-back" role="dialog" aria-modal="true" aria-label="Send invite" onMouseDown={(e) => e.target === e.currentTarget && !busy && setSlot(null)}>
           <form className="modal stack" style={{ maxWidth: 480 }} onSubmit={schedule} noValidate>
             <div className="spread">
-              <h2 style={{ fontSize: 18 }}>New team call</h2>
+              <h2 style={{ fontSize: 18 }}>New group call</h2>
               <button type="button" className="btn ghost sm" onClick={() => setSlot(null)} disabled={busy}>Close</button>
             </div>
             <div className="card flat stack" style={{ gap: 4, padding: 14 }}>
@@ -389,7 +389,7 @@ function TeamSettings({ data, reload }: { data: TeamData; reload: () => void }) 
       const body: Record<string, string> = { name: name.trim() };
       if (owner && handle !== data.team.handle) body.handle = handle;
       await api(`/me/teams/${data.team.id}`, { method: "PATCH", body: JSON.stringify(body) });
-      toast("Team saved");
+      toast("Group saved");
       reload();
     } catch (e2) {
       setErr((e2 as Error).message);
@@ -401,26 +401,26 @@ function TeamSettings({ data, reload }: { data: TeamData; reload: () => void }) 
     <div className="stack">
       {admin && (
         <form className="card stack" onSubmit={save} noValidate>
-          <h3>Team details</h3>
+          <h3>Group details</h3>
           {err && <div className="alert error" role="alert">{err}</div>}
-          <label className="field">Team name
+          <label className="field">Group name
             <input type="text" value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="field">Team address
+          <label className="field">Group address
             <div className="input-prefix"><span>{window.location.host}/</span>
               <input type="text" value={handle} disabled={!owner} maxLength={31} onChange={(e) => setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} />
             </div>
-            <span className="hint">{owner ? "Changing this changes every team link you've shared." : "Only the owner can change the address."}</span>
+            <span className="hint">{owner ? "Changing this changes every group link you've shared." : "Only the owner can change the address."}</span>
           </label>
           <div><button className="btn primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button></div>
         </form>
       )}
       <div className="card stack">
-        <h3>{owner ? "Delete team" : "Leave team"}</h3>
+        <h3>{owner ? "Delete group" : "Leave group"}</h3>
         <p className="small muted" style={{ margin: 0 }}>
           {owner
-            ? "Deletes the team and its booking links. Meetings already booked stay in everyone's calendars."
-            : "You'll stop appearing on this team's links. Meetings already booked stay in your calendar."}
+            ? "Deletes the group and its booking links. Meetings already booked stay in everyone's calendars."
+            : "You'll stop appearing on this group's links. Meetings already booked stay in your calendar."}
         </p>
         <div>
           <button className="btn danger" onClick={async () => {
@@ -428,12 +428,12 @@ function TeamSettings({ data, reload }: { data: TeamData; reload: () => void }) 
             try {
               if (owner) await api(`/me/teams/${data.team.id}`, { method: "DELETE" });
               else if (me) await api(`/me/teams/${data.team.id}/members/${me.id}`, { method: "DELETE" });
-              toast(owner ? "Team deleted" : "You left the team");
+              toast(owner ? "Group deleted" : "You left the group");
               nav("/app/teams");
             } catch (e) {
               toast((e as Error).message);
             }
-          }}>{owner ? "Delete team" : "Leave team"}</button>
+          }}>{owner ? "Delete group" : "Leave group"}</button>
         </div>
       </div>
     </div>

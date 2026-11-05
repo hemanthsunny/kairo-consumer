@@ -10,7 +10,7 @@ const NAV = [
   { to: "/app", label: "Today", icon: IconHome, end: true },
   { to: "/app/calendars", label: "Calendars", icon: IconCalendar },
   { to: "/app/links", label: "Links", icon: IconLink },
-  { to: "/app/teams", label: "Teams", icon: IconUsers },
+  { to: "/app/teams", label: "Groups", icon: IconUsers },
   { to: "/app/bookings", label: "Bookings", icon: IconList },
   { to: "/app/settings", label: "Settings", icon: IconSettings },
 ];
