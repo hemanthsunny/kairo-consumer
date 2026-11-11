@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { GoogleLogo, MicrosoftLogo } from "../components/Icons";
 import { Loading } from "../App";
 import { AvatarStack, joinNames } from "./BookingPage";
+import { cleanAuthUrl } from "../lib/authUrl";
 
 interface InviteInfo {
   email: string;
@@ -63,7 +64,7 @@ export default function Invite() {
         method: "POST",
         body: JSON.stringify({ provider, returnTo: `/invite/${token}`, loginHint: info?.email }),
       });
-      window.location.href = url;
+      window.location.href = cleanAuthUrl(url);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);

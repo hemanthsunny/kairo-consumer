@@ -5,6 +5,7 @@ import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
 import { GoogleLogo, IconCheck, IconShield, MicrosoftLogo } from "../components/Icons";
 import { Loading } from "../App";
+import { cleanAuthUrl } from "../lib/authUrl";
 
 interface Info {
   app: { name: string; client_id: string };
@@ -65,7 +66,7 @@ export default function Connect() {
     setBusy(true);
     try {
       const { url } = await api<{ url: string }>("/me/connect", { method: "POST", body: JSON.stringify({ provider, returnTo: here }) });
-      window.location.href = url;
+      window.location.href = cleanAuthUrl(url);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);

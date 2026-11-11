@@ -5,6 +5,7 @@ import { GoogleLogo, MicrosoftLogo } from "../components/Icons";
 import { ConnectButtons, Switch } from "./shared";
 import { Link, useSearchParams } from "react-router-dom";
 import { AccountLite, useApp } from "./data";
+import { cleanAuthUrl } from "../lib/authUrl";
 
 const LABELS = ["Work", "Personal", "Client", "Jobs", "Side project", "Family"];
 const COLORS = ["#6366f1", "#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6", "#ef4444", "#14b8a6"];
@@ -128,7 +129,7 @@ function AccountRowView({ account: a, checking, calendarId, onChanged, toast }: 
       method: "POST",
       body: JSON.stringify({ provider: a.provider, loginHint: a.email, returnTo: "/app/calendars" }),
     });
-    window.location.href = url;
+    window.location.href = cleanAuthUrl(url);
   }
 
   return (

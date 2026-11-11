@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { GoogleLogo, MicrosoftLogo } from "../components/Icons";
 import { LinkRow, Profile } from "../lib/supabase";
 import { fmt, fmtTime } from "../lib/time";
+import { cleanAuthUrl } from "../lib/authUrl";
 
 export function ConnectButtons({ returnTo = "/app/calendars", compact = false }: { returnTo?: string; compact?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -12,7 +13,7 @@ export function ConnectButtons({ returnTo = "/app/calendars", compact = false }:
     setError(null);
     try {
       const { url } = await api<{ url: string }>("/me/connect", { method: "POST", body: JSON.stringify({ provider, returnTo }) });
-      window.location.href = url;
+      window.location.href = cleanAuthUrl(url);
     } catch (e) {
       setError((e as Error).message);
       setBusy(null);
