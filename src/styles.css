@@ -313,3 +313,8 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
 .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
 .slots.slots-2 { display: grid; grid-template-columns: repeat(2, 1fr); }
 @media (max-width: 720px) { .slots.slots-2 { grid-template-columns: repeat(3, 1fr); max-height: none; } }
+
+/* landing */
+.app-band { display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center; padding: 24px; }
+@media (max-width: 860px) { .app-band { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .hide-sm { display: none; } }

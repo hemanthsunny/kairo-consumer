@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { IconBell, IconLayers, IconLink, IconShield, IconCalendar, IconClock } from "../components/Icons";
+import type { ReactNode } from "react";
+import { IconBell, IconLayers, IconLink, IconShield, IconCalendar, IconClock, IconRefresh, IconUsers } from "../components/Icons";
 
 function Nav() {
   const { session } = useAuth();
@@ -8,7 +9,9 @@ function Nav() {
     <nav className="site-nav" aria-label="Main">
       <Link to="/" className="brand"><img src="/favicon.svg" alt="" />Kairo Link</Link>
       <div className="row">
-        <a href="#pricing" className="btn ghost sm">Pricing</a>
+        <a href="#features" className="btn ghost sm hide-sm">Features</a>
+        <a href="#groups" className="btn ghost sm hide-sm">Groups</a>
+        <a href="#pricing" className="btn ghost sm hide-sm">Pricing</a>
         {session ? (
           <Link to="/app" className="btn primary sm">Open app</Link>
         ) : (
@@ -62,17 +65,68 @@ function HeroMock() {
   );
 }
 
+function GroupMock() {
+  const people = [["NP", "#6366f1"], ["AK", "#0ea5e9"], ["SR", "#f59e0b"], ["JL", "#10b981"]];
+  const times = ["09:30", "11:00", "14:30", "16:00"];
+  return (
+    <div className="mock" aria-hidden="true">
+      <div className="spread" style={{ marginBottom: 14 }}>
+        <div>
+          <strong style={{ fontSize: 15 }}>BiomeQ</strong>
+          <div className="small faint">link.kairohr.co/biomeq</div>
+        </div>
+        <div className="avatar-stack">
+          {people.map(([i, c]) => (
+            <span key={i} className="avatar" style={{ width: 32, height: 32, fontSize: 12, background: c, color: "#fff" }}>{i}</span>
+          ))}
+        </div>
+      </div>
+      <div className="stack" style={{ gap: 8 }}>
+        {[
+          { t: "Intro call", m: "30 min · Naga & Arjun", n: "Closes in 6 days" },
+          { t: "Partner meeting", m: "45 min · whole group", n: "Open" },
+        ].map((l) => (
+          <div key={l.t} className="spread" style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>{l.t}</div>
+              <div className="small faint">{l.m}</div>
+            </div>
+            <span className="badge">{l.n}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 14, padding: 12, borderRadius: 10, background: "var(--surface-2)" }}>
+        <div className="small" style={{ fontWeight: 600, marginBottom: 8 }}>Find a time · Thu 19 Nov · everyone free</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 }}>
+          {times.map((t, i) => (
+            <span key={t} className="center small" style={{ padding: "7px 0", borderRadius: 8, fontWeight: 600, border: "1px solid var(--accent)", color: i === 1 ? "#fff" : "var(--accent)", background: i === 1 ? "var(--accent)" : "var(--surface)" }}>{t}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Check({ children }: { children: ReactNode }) {
+  return (
+    <li className="row" style={{ alignItems: "flex-start", gap: 10 }}>
+      <span className="tick" style={{ flex: "none", marginTop: 1 }}>✓</span>
+      <span>{children}</span>
+    </li>
+  );
+}
+
 export default function Landing() {
   return (
     <div>
       <Nav />
       <header className="hero">
         <div>
-          <span className="eyebrow">For contractors, consultants & freelancers</span>
+          <span className="eyebrow">For contractors, consultants, founders & small groups</span>
           <h1>One booking link for every calendar you live in.</h1>
           <p className="lead">
             Client inbox, your own company, personal life. Connect them all, share one link, and never get double-booked again.
-            Reminders land on WhatsApp or SMS so nothing slips.
+            Book calls with your whole group in one go, and get reminders on WhatsApp, SMS or email, when you want them.
           </p>
           <div className="row wrap" style={{ marginTop: 28 }}>
             <Link to="/login?mode=signup" className="btn primary lg">Get started free</Link>
@@ -85,14 +139,31 @@ export default function Landing() {
 
       <section className="section" id="how">
         <h2>Set up in two minutes. Use it every day.</h2>
-        <p className="muted" style={{ marginTop: 8, maxWidth: 620 }}>Built for people who juggle several email accounts, not for big teams.</p>
+        <div className="grid-3" style={{ marginTop: 28 }}>
+          {[
+            { n: "1", t: "Connect your calendars", d: "Sign in with each Google or Microsoft account you use. We only read when you're busy, unless you choose to see details." },
+            { n: "2", t: "Share your link", d: "Send link.kairohr.co/you, or a link for a specific kind of call. People only see times when you're free in every calendar." },
+            { n: "3", t: "Show up on time", d: "Bookings land in the calendar you pick, with a video link. Reminders arrive where you'll actually see them." },
+          ].map((s) => (
+            <div className="card flat" key={s.n}>
+              <span className="avatar" style={{ width: 34, height: 34, fontSize: 15 }}>{s.n}</span>
+              <h3 style={{ marginTop: 12 }}>{s.t}</h3>
+              <p className="muted small" style={{ marginTop: 6 }}>{s.d}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section" id="features">
+        <h2>Everything a busy calendar needs</h2>
+        <p className="muted" style={{ marginTop: 8, maxWidth: 620 }}>Built for people who juggle several email accounts, and the small groups they work with.</p>
         <div className="grid-3" style={{ marginTop: 28 }}>
           {[
             { icon: <IconLayers />, t: "Connect every calendar", d: "Add each Google or Microsoft account you use: client, company, personal. We check all of them before offering a time." },
-            { icon: <IconLink />, t: "One link per purpose", d: "A link for client calls, one for job interviews, one for friends. Each books into the calendar you choose, with a video link." },
-            { icon: <IconBell />, t: "Reminders where you look", d: "Pick 10 minutes, 30 minutes or a day before. Email is free; add WhatsApp and SMS with Premium so you and your guests never miss a call." },
+            { icon: <IconLink />, t: "One link per purpose", d: "A link for client calls, one for interviews, one for friends. Each books into the calendar you choose, with a video link and its own preview when shared." },
+            { icon: <IconBell />, t: "Reminders on your terms", d: "Choose 10 minutes, 30 minutes or a day before, separately for email, WhatsApp and SMS. Cover just bookings, or every event in your calendars." },
             { icon: <IconShield />, t: "Every meeting, one place", d: "See all your events from every account in one week, with one-click join links. Details are shown only to you, and any calendar can be set to busy-only." },
-            { icon: <IconClock />, t: "Sensible rules built in", d: "No bookings in the past, minimum notice, buffers between calls, and nothing more than a month ahead unless you say so." },
+            { icon: <IconClock />, t: "Sensible rules built in", d: "No bookings in the past, minimum notice, buffers between calls, daily limits, and nothing more than a month ahead unless you say so." },
             { icon: <IconCalendar />, t: "Share times in one tap", d: "Copy your next free times as text and paste them into any email, Slack or WhatsApp chat." },
           ].map((f) => (
             <div className="card flat feature" key={f.t}>
@@ -104,10 +175,53 @@ export default function Landing() {
         </div>
       </section>
 
+      <section className="section" id="groups">
+        <div className="grid-2" style={{ alignItems: "center", gap: 40 }}>
+          <div>
+            <span className="eyebrow"><IconUsers width={14} /> New · Groups</span>
+            <h2>Book with several people at once</h2>
+            <p className="muted" style={{ marginTop: 10 }}>
+              Create a group for your co-founders, practice or project team. Clients pick one time, and it works for everyone on the call.
+            </p>
+            <ul className="stack" style={{ listStyle: "none", padding: 0, margin: "20px 0 0", gap: 10 }}>
+              <Check>One address for the group, like <strong>link.kairohr.co/biomeq/intro</strong></Check>
+              <Check>Each link includes everyone, or just the people you pick</Check>
+              <Check>Only times when every person is free are offered, across all their calendars</Check>
+              <Check><strong>Find a time</strong> for internal calls and send the invite in one click</Check>
+              <Check>Links close after 7 days by default, so old links don't keep filling your week</Check>
+              <Check>Members join free. Only busy times are shared, never event details</Check>
+            </ul>
+            <p className="small faint" style={{ marginTop: 16 }}>Groups are included with the organiser's Premium, for up to 10 people.</p>
+          </div>
+          <GroupMock />
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="card flat app-band">
+          <div className="feature"><div className="icon" style={{ margin: 0 }}><IconRefresh /></div></div>
+          <div>
+            <h3>Interviewing for a company that uses Kairo HR?</h3>
+            <p className="muted small" style={{ marginTop: 6 }}>
+              Connect Kairo Link once and the hiring team sees when you're free across all your calendars, updated as soon as anything changes. They only ever see busy times, and you can disconnect from Settings at any time.
+            </p>
+          </div>
+          <Link to="/login?mode=signup" className="btn">Get started</Link>
+        </div>
+      </section>
+
       <section className="section center" id="pricing">
         <h2>Simple pricing</h2>
-        <p className="muted" style={{ marginTop: 8 }}>Free for everyday use. Upgrade when you want reminders on WhatsApp and SMS.</p>
+        <p className="muted" style={{ marginTop: 8 }}>Free for everyday use. Upgrade for WhatsApp and SMS reminders, unlimited links and groups.</p>
         <PricingTable />
+      </section>
+
+      <section className="section center">
+        <h2>Stop pasting times into emails.</h2>
+        <p className="muted" style={{ marginTop: 8 }}>Connect your calendars and share your first link in two minutes.</p>
+        <div className="row" style={{ justifyContent: "center", marginTop: 22 }}>
+          <Link to="/login?mode=signup" className="btn primary lg">Get started free</Link>
+        </div>
       </section>
 
       <footer className="footer">
@@ -127,12 +241,15 @@ const PRICING_ROWS: [string, string | boolean, string | boolean][] = [
   ["Booking links", "1", "Unlimited"],
   ["Combined calendar view", true, true],
   ["Meet / Teams links", true, true],
-  ["Email reminders", true, true],
+  ["Email reminders for bookings", true, true],
   ["Share free times", true, true],
   ["Limits & buffers", true, true],
+  ["Use with Kairo HR", true, true],
+  ["Reminders for every calendar event", false, true],
   ["WhatsApp reminders", false, "300 / month"],
   ["SMS reminders", false, "50 / month"],
   ["Guest WhatsApp reminders", false, true],
+  ["Groups & Find a time", false, "Up to 10 people"],
   ["Priority support", false, true],
 ];
 
