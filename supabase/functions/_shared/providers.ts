@@ -9,7 +9,6 @@ export type Provider = "google" | "microsoft";
 export const GOOGLE_SCOPES = [
   "openid",
   "email",
-  "profile",
   "https://www.googleapis.com/auth/calendar.freebusy",
   "https://www.googleapis.com/auth/calendar.events", // same scope Kairo HR submitted for review
 ];
@@ -41,7 +40,6 @@ export function authUrl(provider: Provider, state: string, loginHint?: string): 
     u.searchParams.set("scope", GOOGLE_SCOPES.join(" "));
     u.searchParams.set("access_type", "offline");
     u.searchParams.set("prompt", "consent select_account");
-    u.searchParams.set("include_granted_scopes", "true");
     u.searchParams.set("state", state);
     if (loginHint) u.searchParams.set("login_hint", loginHint);
     return u.toString();
