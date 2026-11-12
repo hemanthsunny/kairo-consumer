@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /api/
+Disallow: /b/
+Disallow: /login
+Disallow: /connect
+Disallow: /invite/
+
+Sitemap: https://link.kairohr.co/sitemap.xml

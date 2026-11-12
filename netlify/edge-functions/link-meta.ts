@@ -3,7 +3,7 @@
 import type { Config, Context } from "https://edge.netlify.com";
 
 const API = "https://aqzbnqbuxvbgwtendieh.supabase.co/functions/v1/api";
-const RESERVED = new Set(["app", "b", "api", "login", "privacy", "terms", "assets", "invite", "connect"]);
+const RESERVED = new Set(["app", "b", "api", "login", "privacy", "terms", "assets", "invite", "connect", "vs"]);
 
 type PublicLink = { slug: string; title: string; description: string | null; duration_min: number; location: string | null; people?: string[] };
 type PublicProfile = { host: { name: string; handle: string }; team?: boolean; paused: boolean; links: PublicLink[] };
@@ -90,5 +90,5 @@ export default async (req: Request, context: Context) => {
 
 export const config: Config = {
   path: "/*",
-  excludedPath: ["/", "/app", "/app/*", "/b/*", "/api/*", "/assets/*", "/invite/*", "/connect", "/login", "/privacy", "/terms"],
+  excludedPath: ["/", "/app", "/app/*", "/b/*", "/api/*", "/assets/*", "/invite/*", "/connect", "/login", "/privacy", "/terms", "/vs/*"],
 };

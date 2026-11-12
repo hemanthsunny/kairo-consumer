@@ -4,6 +4,7 @@ import Landing from "./pages/Landing";
 import { AuthProvider } from "./lib/auth";
 
 const Login = lazy(() => import("./pages/Login"));
+const Compare = lazy(() => import("./pages/Compare"));
 const AppShell = lazy(() => import("./app/AppShell"));
 const Home = lazy(() => import("./app/Home"));
 const Calendars = lazy(() => import("./app/Calendars"));
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/b/:token" element={<Manage />} />
           <Route path="/invite/:token" element={<Invite />} />
           <Route path="/connect" element={<Connect />} />
+          <Route path="/vs/:slug" element={<Compare />} />
           <Route path="/:handle" element={<PublicProfile />} />
           <Route path="/:handle/:slug" element={<BookingPage />} />
         </Routes>

@@ -3,15 +3,15 @@ import { useAuth } from "../lib/auth";
 import type { ReactNode } from "react";
 import { IconBell, IconLink, IconShield, IconCalendar, IconUsers } from "../components/Icons";
 
-function Nav() {
+export function Nav() {
   const { session } = useAuth();
   return (
     <nav className="site-nav" aria-label="Main">
       <Link to="/" className="brand"><img src="/favicon.svg" alt="" />Kairo Link</Link>
       <div className="row">
-        <a href="#features" className="btn ghost sm hide-sm">Features</a>
-        <a href="#groups" className="btn ghost sm hide-sm">Groups</a>
-        <a href="#pricing" className="btn ghost sm hide-sm">Pricing</a>
+        <a href="/#features" className="btn ghost sm hide-sm">Features</a>
+        <a href="/#groups" className="btn ghost sm hide-sm">Groups</a>
+        <a href="/#pricing" className="btn ghost sm hide-sm">Pricing</a>
         {session ? (
           <Link to="/app" className="btn primary sm">Open app</Link>
         ) : (
@@ -182,14 +182,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer className="footer">
-        <div className="row" style={{ justifyContent: "center", gap: 18 }}>
-          <Link to="/privacy">Privacy</Link>
-          <Link to="/terms">Terms</Link>
-          <a href="mailto:contact@kairohr.co">Contact</a>
-        </div>
-        <p style={{ marginTop: 10 }}>© {new Date().getFullYear()} Sextans Ltd · Kairo Link</p>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
@@ -207,6 +200,21 @@ function Cell({ v }: { v: string | boolean }) {
   if (v === true) return <span className="tick" aria-label="Included">✓</span>;
   if (v === false) return <span className="faint" aria-label="Not included">—</span>;
   return <span>{v}</span>;
+}
+
+export function SiteFooter() {
+  return (
+    <footer className="footer">
+      <div className="row wrap" style={{ justifyContent: "center", gap: 18 }}>
+        <Link to="/vs/calendly">Kairo Link vs Calendly</Link>
+        <Link to="/vs/cal-com">Kairo Link vs Cal.com</Link>
+        <Link to="/privacy">Privacy</Link>
+        <Link to="/terms">Terms</Link>
+        <a href="mailto:contact@kairohr.co">Contact</a>
+      </div>
+      <p style={{ marginTop: 10 }}>© {new Date().getFullYear()} Sextans Ltd · Kairo Link</p>
+    </footer>
+  );
 }
 
 export function PricingTable() {

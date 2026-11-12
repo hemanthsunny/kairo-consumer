@@ -342,3 +342,6 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
 @keyframes kl-slide-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .mobile-only { display: none; }
 @media (max-width: 860px) { .mobile-only { display: block; } }
+.pricing.compare td { text-align: left; }
+.pricing.compare th.featured, .pricing.compare td.featured { font-weight: 500; }
+@media (max-width: 600px) { .pricing.compare { table-layout: auto; } .pricing.compare thead th:first-child, .pricing.compare tbody th { width: 34%; } }
