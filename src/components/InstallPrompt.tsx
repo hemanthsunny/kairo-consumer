@@ -14,6 +14,10 @@ function isIOS() {
   const ua = navigator.userAgent;
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
+/** Chrome, Firefox and Edge on iOS say so in their user agent; Brave looks exactly like Safari. */
+function iosOtherBrowser() {
+  return /CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+}
 function isPhoneSized() {
   return window.matchMedia?.("(max-width: 860px)").matches && window.matchMedia?.("(pointer: coarse)").matches;
 }
@@ -70,6 +74,7 @@ export default function InstallPrompt() {
         {show === "ios" ? (
           <p>
             Tap <ShareIcon /> <b>Share</b>, then <b>Add to Home Screen</b>.
+            {iosOtherBrowser() ? " Don't see it? Open this page in Safari." : " Using Brave or another browser? Use its Share button, or open this page in Safari."}
           </p>
         ) : (
           <p>Open it like an app, in one tap.</p>
