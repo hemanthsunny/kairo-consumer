@@ -96,12 +96,21 @@ function layoutDay(items: Item[], dayStart: number, tz: string): Placed[] {
 
 export function WeekCalendar({ from, tz, items, onSelect }: { from: number; tz: string; items: Item[]; onSelect: (it: Item) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const hscroll = useRef<HTMLDivElement>(null);
   const days = Array.from({ length: 7 }, (_, i) => from + i * 86400000);
   const today = dayKey(Date.now(), tz);
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 7.5 * PX_PER_H;
-  }, [from]);
+    if (hscroll.current && hscroll.current.scrollHeight > hscroll.current.clientHeight + 4) hscroll.current.scrollTop = 7.5 * PX_PER_H;
+    // On phones the week is wider than the screen: start on today's column.
+    const h = hscroll.current;
+    if (h && h.scrollWidth > h.clientWidth + 4) {
+      const idx = days.findIndex((d) => dayKey(d + 3 * 3600000, tz) === dayKey(Date.now(), tz));
+      const col = (h.scrollWidth - 44) / 7;
+      h.scrollLeft = idx > 0 ? Math.max(0, idx * col - col * 0.25) : 0;
+    }
+  }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const perDay = useMemo(() => days.map((d) => {
     const dk = dayKey(d + 3 * 3600000, tz);
@@ -114,8 +123,8 @@ export function WeekCalendar({ from, tz, items, onSelect }: { from: number; tz: 
   const nowM = minutesOfDay(Date.now(), tz);
 
   return (
-    <div className="week-scroll">
-      <div style={{ minWidth: 760 }}>
+    <div className="week-scroll" ref={hscroll}>
+      <div className="week-inner">
         <div className="week week-head">
           <div className="head" />
           {perDay.map(({ d, dk }) => (

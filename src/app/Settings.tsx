@@ -214,6 +214,11 @@ export default function Settings() {
         )}
         <p className="small faint">Payments are handled securely by Stripe. Questions? <a href="mailto:contact@kairohr.co">contact@kairohr.co</a></p>
       </div>
+      <div className="card stack mobile-only">
+        <h2>Account</h2>
+        <p className="small muted" style={{ margin: 0 }}>Signed in as {profile.email}</p>
+        <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => supabase.auth.signOut()}>Sign out</button>
+      </div>
     </div>
   );
 }

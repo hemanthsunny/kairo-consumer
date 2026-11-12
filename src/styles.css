@@ -318,3 +318,27 @@ textarea { height: auto; min-height: 84px; padding: 10px 12px; resize: vertical;
 .app-band { display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center; padding: 24px; }
 @media (max-width: 860px) { .app-band { grid-template-columns: 1fr; } }
 @media (max-width: 600px) { .hide-sm { display: none; } }
+
+/* mobile: keep pages inside the screen; only the week grid scrolls sideways */
+.main { min-width: 0; }
+.week-scroll { max-width: 100%; -webkit-overflow-scrolling: touch; }
+.week-inner { min-width: 760px; }
+@media (max-width: 860px) {
+  /* one scroller for both directions so the hours column and day header stay pinned */
+  .week-scroll { overflow: auto; max-height: 70vh; border: 1px solid var(--border); border-radius: var(--radius); }
+  .week-inner { min-width: 0; width: calc(44px + 7 * 104px); }
+  .week-body { max-height: none; overflow: visible; border: 0; }
+  .week { overflow: clip; border: 0; border-radius: 0; }
+  .week-head { position: sticky; top: 0; z-index: 6; }
+  .week .gutter, .week-head .head:first-child { position: sticky; left: 0; z-index: 5; background: var(--surface); }
+}
+
+/* add to home screen */
+.install-prompt { position: fixed; left: 12px; right: 12px; bottom: calc(74px + env(safe-area-inset-bottom)); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 10px 30px rgba(15,23,42,.18); animation: kl-slide-up .25s ease-out; }
+.install-prompt img { border-radius: 10px; flex: none; }
+.install-prompt strong { display: block; font-size: 14px; }
+.install-prompt p { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.install-close { border: 0; background: none; font-size: 22px; line-height: 1; color: var(--faint); padding: 4px 6px; cursor: pointer; }
+@keyframes kl-slide-up { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+.mobile-only { display: none; }
+@media (max-width: 860px) { .mobile-only { display: block; } }

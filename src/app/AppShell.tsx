@@ -4,6 +4,7 @@ import { Loading } from "../App";
 import { IconCalendar, IconHome, IconLink, IconList, IconSettings, IconUsers } from "../components/Icons";
 import { useAuth } from "../lib/auth";
 import { supabase } from "../lib/supabase";
+import InstallPrompt from "../components/InstallPrompt";
 import { AppCtx, effectivePlan, useAppLoader, useToast } from "./data";
 
 const NAV = [
@@ -63,6 +64,7 @@ export default function AppShell() {
           ))}
         </nav>
       </div>
+      <InstallPrompt />
       {msg && <div className="toast" role="status">{msg}</div>}
     </AppCtx.Provider>
   );
